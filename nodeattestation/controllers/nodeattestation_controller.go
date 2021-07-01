@@ -144,6 +144,11 @@ func (r *NodeAttestationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	csrList := &certv1beta1.CertificateSigningRequestList{}
 	if err := remoteClient.List(ctx, csrList,
 		client.MatchingLabels{clusterv1.ClusterLabelName: machine.Spec.ClusterName},
+		// TODO: this way of looking up the CSR is wrong. The spec.username in the CSR will not be the nodename
+		// it will be the name of the bootstrap token. We should look at other ways to find the node from the CSR.
+		// May be add the nodename in the annotation section or the labels section of the CSR?
+		// We need the node name here so that we can find the correct CSR to reconcile?
+		// Cant we just reconcile all CSRs? (That is probably what csrapprover controller does in k8s)
 		client.MatchingFields{usernameField: strings.Join([]string{nodeUserPrefix, machine.Name}, ":")}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -166,7 +171,7 @@ func (r *NodeAttestationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return ctrl.Result{}, err
 			}
 		}
-
+		fmt.Printf("%#v\n", authorized)
 	}
 
 	return ctrl.Result{}, nil
