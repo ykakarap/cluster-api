@@ -18,8 +18,11 @@ limitations under the License.
 package predicates
 
 import (
+	"fmt"
+
 	"github.com/go-logr/logr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -187,4 +190,31 @@ func ClusterUnpausedAndInfrastructureReady(logger logr.Logger) predicate.Funcs {
 
 	// Use any to ensure we process either create or update events we care about
 	return Any(log, createPredicates, updatePredicates)
+}
+
+// ClusterHasTopology returns a Predicate that returns true if the cluster.spec.topology is not nil.
+// Return false otherwise.
+func ClusterHasTopology(logger logr.Logger) predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return clusterHasTopology(logger.WithValues("predicate", "createEvent"), e.Object)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return clusterHasTopology(logger.WithValues("predicate", "updateEvent"), e.ObjectNew)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return clusterHasTopology(logger.WithValues("predicate", "deleteEvent"), e.Object)
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return clusterHasTopology(logger.WithValues("predicate", "genericEvent"), e.Object)
+		},
+	}
+}
+
+func clusterHasTopology(logger logr.Logger, obj client.Object) bool {
+	cluster, ok := obj.(*clusterv1.Cluster)
+	if !ok {
+		panic(fmt.Sprintf("Expected a Cluster but got a %T", obj))
+	}
+	return cluster.Spec.Topology != nil
 }
