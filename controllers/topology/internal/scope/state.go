@@ -51,15 +51,16 @@ type ControlPlaneState struct {
 // MachineDeploymentsStateMap holds a collection of MachineDeployment states.
 type MachineDeploymentsStateMap map[string]*MachineDeploymentState
 
-// IsAnyRollingOut returns true if at least one of the machine deployments
-// is upgrading.
-func (mds MachineDeploymentsStateMap) IsAnyRollingOut() bool {
+// RollingOut returns the list of all the machine deployment names
+// that are rolling out.
+func (mds MachineDeploymentsStateMap) RollingOut() []string {
+	names := []string{}
 	for _, md := range mds {
 		if md.IsRollingOut() {
-			return true
+			names = append(names, md.Object.Name)
 		}
 	}
-	return false
+	return names
 }
 
 // MachineDeploymentState holds all the objects representing the state of a managed deployment.

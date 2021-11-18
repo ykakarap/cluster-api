@@ -22,31 +22,59 @@ const maxMachineDeploymentUpgradeConcurrency = 1
 
 // UpgradeTracker is a helper to capture the upgrade status and make upgrade decisions.
 type UpgradeTracker struct {
+	ControlPlane       ControlPlaneUpgradeTracker
 	MachineDeployments MachineDeploymentUpgradeTracker
+}
+
+// TopologyUpgrading returns true if the control plane or machine deployments are
+// upgrading/rollingout. Returns false otherwise.
+func (t *UpgradeTracker) TopologyUpgrading() bool {
+	return !t.ControlPlane.Stable || !t.MachineDeployments.Stable()
+}
+
+type ControlPlaneUpgradeTracker struct {
+	// Stable captures the state of control plane.
+	// It is false if the control plane is upgrading, scaling or about to upgrade.
+	// True, otherwise.
+	Stable bool
 }
 
 // MachineDeploymentUpgradeTracker holds the current upgrade status and makes upgrade
 // decisions for MachineDeployments.
 type MachineDeploymentUpgradeTracker struct {
-	names sets.String
+	MachineDeploymentRollingOut      []string
+	machineDeploymentsReadyToUpgrade sets.String
 }
 
 // NewUpgradeTracker returns an upgrade tracker with empty tracking information.
 func NewUpgradeTracker() *UpgradeTracker {
 	return &UpgradeTracker{
 		MachineDeployments: MachineDeploymentUpgradeTracker{
-			names: sets.NewString(),
+			machineDeploymentsReadyToUpgrade: sets.NewString(),
 		},
 	}
 }
 
+// Stable returns true of none of the machine deployments are rolling out or
+// are about to be upgraded.
+// Returns false otherwise.
+func (m *MachineDeploymentUpgradeTracker) Stable() bool {
+	return len(m.NamesList()) == 0
+}
+
+// NamesList returns the list of the machine deployments that are already rolling out
+// or are ready to be upgraded.
+func (m *MachineDeploymentUpgradeTracker) NamesList() []string {
+	return append(m.machineDeploymentsReadyToUpgrade.List(), m.MachineDeploymentRollingOut...)
+}
+
 // Insert adds name to the set of MachineDeployments that will be upgraded.
 func (m *MachineDeploymentUpgradeTracker) Insert(name string) {
-	m.names.Insert(name)
+	m.machineDeploymentsReadyToUpgrade.Insert(name)
 }
 
 // AllowUpgrade returns true if a MachineDeployment is allowed to upgrade,
 // returns false otherwise.
 func (m *MachineDeploymentUpgradeTracker) AllowUpgrade() bool {
-	return m.names.Len() < maxMachineDeploymentUpgradeConcurrency
+	return m.machineDeploymentsReadyToUpgrade.Len() < maxMachineDeploymentUpgradeConcurrency
 }

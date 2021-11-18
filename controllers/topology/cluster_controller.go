@@ -23,13 +23,17 @@ import (
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/controllers/topology/internal/contract"
 	"sigs.k8s.io/cluster-api/controllers/topology/internal/extensions/patches"
 	"sigs.k8s.io/cluster-api/controllers/topology/internal/scope"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -123,8 +127,6 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 		return ctrl.Result{}, nil
 	}
 
-	// TODO: Add patching as soon as we define how to report managed topology state into conditions
-
 	// In case the object is deleted, the managed topology stops to reconcile;
 	// (the other controllers will take care of deletion).
 	if !cluster.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -135,10 +137,39 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 
 	// Create a scope initialized with only the cluster; during reconcile
 	// additional information will be added about the Cluster blueprint, current state and desired state.
-	scope := scope.New(cluster)
+	s := scope.New(cluster)
+
+	// TODO: Add patching as soon as we define how to report managed topology state into conditions
+	defer func() {
+		patchHelper, err := patch.NewHelper(s.Current.Cluster, r.Client)
+		if err != nil {
+			kerrors.NewAggregate([]error{reterr, err})
+			return
+		}
+		updatedCluster := &clusterv1.Cluster{}
+		if err := r.Client.Get(ctx, req.NamespacedName, updatedCluster); err != nil {
+			kerrors.NewAggregate([]error{reterr, err})
+			return
+		}
+
+		if err := r.computeConditions(ctx, updatedCluster, s, reterr); err != nil {
+			kerrors.NewAggregate([]error{reterr, err})
+			return
+		}
+		options := []patch.Option{
+			patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
+				clusterv1.TopologyReconciledCondition,
+				clusterv1.TopologyUpgradedCondition,
+			}},
+			patch.WithForceOverwriteConditions{},
+		}
+		if err := patchHelper.Patch(ctx, updatedCluster, options...); err != nil {
+			kerrors.NewAggregate([]error{reterr, err})
+		}
+	}()
 
 	// Handle normal reconciliation loop.
-	return r.reconcile(ctx, scope)
+	return r.reconcile(ctx, s)
 }
 
 // reconcile handles cluster reconciliation.
@@ -238,4 +269,81 @@ func (r *ClusterReconciler) machineDeploymentToCluster(o client.Object) []ctrl.R
 			Name:      md.Spec.ClusterName,
 		},
 	}}
+}
+
+func (r *ClusterReconciler) computeConditions(ctx context.Context, cluster *clusterv1.Cluster, s *scope.Scope, reconcileErr error) error {
+	// If reconciliation failed then set the TopologyReconciled state to false.
+	if reconcileErr != nil {
+		conditions.Set(
+			cluster,
+			conditions.FalseCondition(
+				clusterv1.TopologyReconciledCondition,
+				clusterv1.TopologyReconciledErroredReason,
+				clusterv1.ConditionSeverityError, "",
+			),
+		)
+		return nil
+	}
+
+	// At this reconciler did not throw any errors.
+	// Set the TopologyUpgraded condition based on the state of the upgrade process.
+	cpSpecVersion, err := contract.ControlPlane().Version().Get(s.Desired.ControlPlane.Object)
+	if err != nil {
+		return errors.Wrap(err, "failed to get control plane spec version")
+	}
+	topologyVersion := s.Blueprint.Topology.Version
+	var msg string
+	if *cpSpecVersion != topologyVersion {
+		msg = fmt.Sprintf("Upgrade to %s on hold. ", topologyVersion)
+	}
+
+	topologyUpgrading := false
+	if s.Current.ControlPlane != nil && s.Current.ControlPlane.Object != nil && !s.UpgradeTracker.ControlPlane.Stable {
+		topologyUpgrading = true
+		msg += fmt.Sprintf("Control Plane is upgrading to %s", *cpSpecVersion)
+		conditions.Set(
+			cluster,
+			conditions.FalseCondition(
+				clusterv1.TopologyUpgradedCondition,
+				clusterv1.TopologyUpgradedControlPlaneUpgradingReason,
+				clusterv1.ConditionSeverityInfo,
+				msg,
+			),
+		)
+	}
+	if s.Current.ControlPlane != nil && s.Current.ControlPlane.Object != nil && !s.UpgradeTracker.MachineDeployments.Stable() {
+		topologyUpgrading = true
+		msg += fmt.Sprintf("MachineDeployment(s) %q rolling out", s.UpgradeTracker.MachineDeployments.NamesList())
+		conditions.Set(
+			cluster,
+			conditions.FalseCondition(
+				clusterv1.TopologyUpgradedCondition,
+				clusterv1.TopologyUpgradedMachineDeploymentUpgradingReason,
+				clusterv1.ConditionSeverityInfo,
+				msg,
+			),
+		)
+	}
+	// If nether the control plane nor the machine deployments are upgrading then the topology
+	// can be considered as upgraded.
+	// If the cluster already has the TopologyUpgraded condition then set it to true.
+	if !topologyUpgrading && conditions.Has(cluster, clusterv1.TopologyUpgradedCondition) {
+		conditions.Set(
+			cluster,
+			conditions.TrueCondition(clusterv1.TopologyUpgradedCondition),
+		)
+	}
+
+	if !topologyUpgrading {
+		// At this point there were no reconcile errors and also the topology is not upgrading.
+		// It is now safe to assume that tht spec of all the associated objects of the clusters
+		// matches the expected values defiend in cluster.spec.topology.
+		// We can now mark the TopologyReconciled conditions as true.
+		conditions.Set(
+			cluster,
+			conditions.TrueCondition(clusterv1.TopologyReconciledCondition),
+		)
+	}
+
+	return nil
 }

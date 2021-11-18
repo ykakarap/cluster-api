@@ -220,6 +220,7 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 	desiredVersion := s.Blueprint.Topology.Version
 	// If we are creating the control plane object (current control plane is nil), use version from topology.
 	if s.Current.ControlPlane == nil || s.Current.ControlPlane.Object == nil {
+		s.UpgradeTracker.ControlPlane.Stable = true
 		return desiredVersion, nil
 	}
 
@@ -227,12 +228,6 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 	currentVersion, err := contract.ControlPlane().Version().Get(s.Current.ControlPlane.Object)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to get the version from control plane spec")
-	}
-
-	// Return early if the version is already equal to the desired version
-	// no further checks required.
-	if *currentVersion == desiredVersion {
-		return *currentVersion, nil
 	}
 
 	// Check if the current control plane is upgrading
@@ -245,6 +240,7 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 	// Return the current version of the control plane. We will pick up the new version
 	// after the control plane is stable.
 	if cpUpgrading {
+		s.UpgradeTracker.ControlPlane.Stable = false
 		return *currentVersion, nil
 	}
 
@@ -256,15 +252,22 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 			return "", errors.Wrap(err, "failed to check if the control plane is scaling")
 		}
 		if cpScaling {
+			s.UpgradeTracker.ControlPlane.Stable = false
 			return *currentVersion, nil
 		}
+	}
+
+	// If the control plane is already at the desired version then return the current version.
+	if *currentVersion == desiredVersion {
+		s.UpgradeTracker.ControlPlane.Stable = true
+		return *currentVersion, nil
 	}
 
 	// If the control plane is not upgrading or scaling, we can assume the control plane is stable.
 	// However, we should also check for the MachineDeployments to be stable.
 	// If the MachineDeployments are rolling out (still completing a previous upgrade), then do not pick
 	// up the desiredVersion yet. We will pick up the new version after the MachineDeployments are stable.
-	if s.Current.MachineDeployments.IsAnyRollingOut() {
+	if rollingOutMDs := s.Current.MachineDeployments.RollingOut(); len(rollingOutMDs) != 0 {
 		return *currentVersion, nil
 	}
 
@@ -299,6 +302,7 @@ func computeCluster(_ context.Context, s *scope.Scope, infrastructureCluster, co
 
 // computeMachineDeployments computes the desired state of the list of MachineDeployments.
 func computeMachineDeployments(ctx context.Context, s *scope.Scope, desiredControlPlaneState *scope.ControlPlaneState) (scope.MachineDeploymentsStateMap, error) {
+	s.UpgradeTracker.MachineDeployments.MachineDeploymentRollingOut = s.Current.MachineDeployments.RollingOut()
 	machineDeploymentsStateMap := make(scope.MachineDeploymentsStateMap)
 	for _, mdTopology := range s.Blueprint.Topology.Workers.MachineDeployments {
 		desiredMachineDeployment, err := computeMachineDeployment(ctx, s, desiredControlPlaneState, mdTopology)
@@ -491,58 +495,69 @@ func computeMachineDeploymentVersion(s *scope.Scope, desiredControlPlaneState *s
 		return currentVersion, nil
 	}
 
-	// If the current control plane is upgrading, then do not pick up the desiredVersion yet.
-	// Return the current version of the machine deployment. We will pick up the new version after the control
-	// plane is stable.
-	cpUpgrading, err := contract.ControlPlane().IsUpgrading(s.Current.ControlPlane.Object)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to check if control plane is upgrading")
-	}
-	if cpUpgrading {
-		return currentVersion, nil
-	}
-
-	// If control plane supports replicas, check if the control plane is in the middle of a scale operation.
-	// If the current control plane is scaling, then do not pick up the desiredVersion yet.
-	// Return the current version of the machine deployment. We will pick up the new version after the control
-	// plane is stable.
-	if s.Blueprint.Topology.ControlPlane.Replicas != nil {
-		cpScaling, err := contract.ControlPlane().IsScaling(s.Current.ControlPlane.Object)
+	/*
+		// If the current control plane is upgrading, then do not pick up the desiredVersion yet.
+		// Return the current version of the machine deployment. We will pick up the new version after the control
+		// plane is stable.
+		cpUpgrading, err := contract.ControlPlane().IsUpgrading(s.Current.ControlPlane.Object)
 		if err != nil {
-			return "", errors.Wrap(err, "failed to check if the control plane is scaling")
+			return "", errors.Wrap(err, "failed to check if control plane is upgrading")
 		}
-		if cpScaling {
+		if cpUpgrading {
 			return currentVersion, nil
 		}
-	}
 
-	// Check if we are about to upgrade the control plane. In that case, do not upgrade the machine deployment yet.
-	// Wait for the new upgrade operation on the control plane to finish before picking up the new version for the
+		// If control plane supports replicas, check if the control plane is in the middle of a scale operation.
+		// If the current control plane is scaling, then do not pick up the desiredVersion yet.
+		// Return the current version of the machine deployment. We will pick up the new version after the control
+		// plane is stable.
+		if s.Blueprint.Topology.ControlPlane.Replicas != nil {
+			cpScaling, err := contract.ControlPlane().IsScaling(s.Current.ControlPlane.Object)
+			if err != nil {
+				return "", errors.Wrap(err, "failed to check if the control plane is scaling")
+			}
+			if cpScaling {
+				return currentVersion, nil
+			}
+		}
+
+		// Check if we are about to upgrade the control plane. In that case, do not upgrade the machine deployment yet.
+		// Wait for the new upgrade operation on the control plane to finish before picking up the new version for the
+		// machine deployment.
+		currentCPVersion, err := contract.ControlPlane().Version().Get(s.Current.ControlPlane.Object)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to get version of current control plane")
+		}
+		desiredCPVersion, err := contract.ControlPlane().Version().Get(desiredControlPlaneState.Object)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to get version of desired control plane")
+		}
+		if *currentCPVersion != *desiredCPVersion {
+			// The versions of the current and desired control planes do no match,
+			// implies we are about to upgrade the control plane.
+			return currentVersion, nil
+		}
+	*/
+
+	// Check if the control plane is stable. If not, do not upgrade the machine deployment yet.
+	// Wait for  the control plane to be stable before picking up the new version for the
 	// machine deployment.
-	currentCPVersion, err := contract.ControlPlane().Version().Get(s.Current.ControlPlane.Object)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to get version of current control plane")
-	}
-	desiredCPVersion, err := contract.ControlPlane().Version().Get(desiredControlPlaneState.Object)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to get version of desired control plane")
-	}
-	if *currentCPVersion != *desiredCPVersion {
-		// The versions of the current and desired control planes do no match,
-		// implies we are about to upgrade the control plane.
+	if !s.UpgradeTracker.ControlPlane.Stable {
 		return currentVersion, nil
 	}
 
-	// At this point the control plane is stable (not scaling, not upgrading, not being upgraded).
+	// At this point the control plane is stable (not scaling, not upgrading, not about to upgrade).
 	// Checking to see if the machine deployments are also stable.
 	// If any of the MachineDeployments is rolling out, do not upgrade the machine deployment yet.
-	if s.Current.MachineDeployments.IsAnyRollingOut() {
+	if rollingOutMDs := s.Current.MachineDeployments.RollingOut(); len(rollingOutMDs) != 0 {
 		return currentVersion, nil
 	}
 
 	// Control plane and machine deployments are stable.
 	// Ready to pick up the topology version.
-	s.UpgradeTracker.MachineDeployments.Insert(currentMDState.Object.Name)
+	if currentVersion != desiredVersion {
+		s.UpgradeTracker.MachineDeployments.Insert(currentMDState.Object.Name)
+	}
 	return desiredVersion, nil
 }
 

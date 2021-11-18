@@ -251,3 +251,26 @@ const (
 	// ScalingDownReason (Severity=Info) documents a MachineSet is decreasing the number of replicas.
 	ScalingDownReason = "ScalingDown"
 )
+
+// Conditions and condition reasons for Cluter Topology
+const (
+	// TopologyReconciledCondition defines the Recondiled condition type that summarizes the reconciliation state of
+	// a Cluster Topology.
+	TopologyReconciledCondition ConditionType = "TopologyReconciled"
+
+	// TopologyUpgradeControlPlaneUpgradingReason (Severity=Error) documents a condition not in Status=False becasue the
+	// topology reconciler errored.
+	TopologyReconciledErroredReason = "TopologyReconcileErrored"
+
+	// TopologyUpgradedCondition defined the Updated condition type that summarizes the kubernetes version upgrade state
+	// of a Cluster with managed topology.
+	TopologyUpgradedCondition ConditionType = "TopologyUpgraded"
+
+	// TopologyUpgradedControlPlaneUpgradingReason (Severity=Info) documents a condition not in Status=True becasue the
+	// associated Control Plane has not yet finished upgrading.
+	TopologyUpgradedControlPlaneUpgradingReason = "ControlPlaneUpgrading"
+
+	// TopologyUpgradedMachineDeploymentUpgradingReason (Severity=Info) documents a condition not in Status=True becasue at
+	// least one of the associated MachineDeployment has not yet finished upgrading.
+	TopologyUpgradedMachineDeploymentUpgradingReason = "MachineDeploymentUpgrading"
+)
