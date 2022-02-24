@@ -21,16 +21,17 @@ import (
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1beta1"
-	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
 // +kubebuilder:rbac:groups=addons.cluster.x-k8s.io,resources=*,verbs=get;list;watch;create;update;patch;delete
@@ -76,15 +77,22 @@ func (r *ClusterResourceSetBindingReconciler) Reconcile(ctx context.Context, req
 	}
 
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, binding.ObjectMeta)
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// If the owner cluster is already deleted, delete its ClusterResourceSetBinding
+			log.Info("deleting ClusterResourceSetBinding because the owner Cluster no longer exists")
+			return ctrl.Result{}, r.Client.Delete(ctx, binding)
+		}
 		return ctrl.Result{}, err
 	}
-
-	// If the owner cluster is already deleted or in deletion process, delete its ClusterResourceSetBinding
-	if apierrors.IsNotFound(err) || !cluster.DeletionTimestamp.IsZero() {
-		log.Info("deleting ClusterResourceSetBinding because the owner Cluster no longer exists")
-		err := r.Client.Delete(ctx, binding)
-		return ctrl.Result{}, err
+	if cluster == nil {
+		log.Info("ownerRef not found for the ClusterResourceSetBinding")
+		return ctrl.Result{}, nil
+	}
+	// If the owner cluster is in deletion process, delete its ClusterResourceSetBinding
+	if !cluster.DeletionTimestamp.IsZero() {
+		log.Info("deleting ClusterResourceSetBinding because the owner Cluster is currently being deleted")
+		return ctrl.Result{}, r.Client.Delete(ctx, binding)
 	}
 
 	return ctrl.Result{}, nil

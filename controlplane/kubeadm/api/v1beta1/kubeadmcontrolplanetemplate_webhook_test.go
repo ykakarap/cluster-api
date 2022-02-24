@@ -18,14 +18,45 @@ package v1beta1
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilfeature "k8s.io/component-base/featuregate/testing"
-	"k8s.io/utils/pointer"
+
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
+	utildefaulting "sigs.k8s.io/cluster-api/util/defaulting"
 )
+
+func TestKubeadmControlPlaneTemplateDefault(t *testing.T) {
+	defer utilfeature.SetFeatureGateDuringTest(t, feature.Gates, feature.ClusterTopology, true)()
+
+	g := NewWithT(t)
+
+	kcpTemplate := &KubeadmControlPlaneTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "foo",
+		},
+		Spec: KubeadmControlPlaneTemplateSpec{
+			Template: KubeadmControlPlaneTemplateResource{
+				Spec: KubeadmControlPlaneTemplateResourceSpec{
+					MachineTemplate: &KubeadmControlPlaneTemplateMachineTemplate{
+						NodeDrainTimeout: &metav1.Duration{Duration: 10 * time.Second},
+					},
+				},
+			},
+		},
+	}
+	updateDefaultingValidationKCPTemplate := kcpTemplate.DeepCopy()
+	updateDefaultingValidationKCPTemplate.Spec.Template.Spec.MachineTemplate.NodeDrainTimeout = &metav1.Duration{Duration: 20 * time.Second}
+	t.Run("for KubeadmControlPlaneTemplate", utildefaulting.DefaultValidateTest(updateDefaultingValidationKCPTemplate))
+	kcpTemplate.Default()
+
+	g.Expect(kcpTemplate.Spec.Template.Spec.KubeadmConfigSpec.Format).To(Equal(bootstrapv1.CloudConfig))
+	g.Expect(kcpTemplate.Spec.Template.Spec.RolloutStrategy.Type).To(Equal(RollingUpdateStrategyType))
+	g.Expect(kcpTemplate.Spec.Template.Spec.RolloutStrategy.RollingUpdate.MaxSurge.IntVal).To(Equal(int32(1)))
+}
 
 func TestKubeadmControlPlaneTemplateValidationFeatureGateEnabled(t *testing.T) {
 	defer utilfeature.SetFeatureGateDuringTest(t, feature.Gates, feature.ClusterTopology, true)()
@@ -40,16 +71,9 @@ func TestKubeadmControlPlaneTemplateValidationFeatureGateEnabled(t *testing.T) {
 			},
 			Spec: KubeadmControlPlaneTemplateSpec{
 				Template: KubeadmControlPlaneTemplateResource{
-					Spec: KubeadmControlPlaneSpec{
-						Replicas: pointer.Int32Ptr(3),
-						Version:  "v1.20.2",
-						MachineTemplate: KubeadmControlPlaneMachineTemplate{
-							InfrastructureRef: corev1.ObjectReference{
-								Name:       "machine-infra",
-								Namespace:  testnamespace,
-								Kind:       "TestMachineTemplate",
-								APIVersion: "test/v1alpha4",
-							},
+					Spec: KubeadmControlPlaneTemplateResourceSpec{
+						MachineTemplate: &KubeadmControlPlaneTemplateMachineTemplate{
+							NodeDrainTimeout: &metav1.Duration{Duration: time.Second},
 						},
 					},
 				},
@@ -71,16 +95,9 @@ func TestKubeadmControlPlaneTemplateValidationFeatureGateDisabled(t *testing.T) 
 			},
 			Spec: KubeadmControlPlaneTemplateSpec{
 				Template: KubeadmControlPlaneTemplateResource{
-					Spec: KubeadmControlPlaneSpec{
-						Replicas: pointer.Int32Ptr(2),
-						Version:  "1.20.2",
-						MachineTemplate: KubeadmControlPlaneMachineTemplate{
-							InfrastructureRef: corev1.ObjectReference{
-								Name:       "machine-infra",
-								Namespace:  testnamespace,
-								Kind:       "TestMachineTemplate",
-								APIVersion: "test/v1alpha4",
-							},
+					Spec: KubeadmControlPlaneTemplateResourceSpec{
+						MachineTemplate: &KubeadmControlPlaneTemplateMachineTemplate{
+							NodeDrainTimeout: &metav1.Duration{Duration: time.Second},
 						},
 					},
 				},

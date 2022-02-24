@@ -24,7 +24,7 @@
       - [CRD additionalPrinterColumns](#crd-additionalprintercolumns)
     - [Google Doc Viewing Permissions](#google-doc-viewing-permissions)
     - [Issue and Pull Request Management](#issue-and-pull-request-management)
-    - [Subareas of interest](#subareas-of-interest)
+    - [Contributors ladder](#contributors-ladder)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -75,7 +75,7 @@ These guarantees extend to all code exposed in our Go Module, including
 Types and functions not in public APIs are not considered part of the guarantee.
 The test module, clusterctl, and experiments do not provide any backward compatible guarantees.
 
-#### Backporting
+#### Backporting a patch
 
 We only accept backports of critical bugs, security issues, or bugs without easy workarounds, any
 backport MUST not be breaking for either API or behavioral changes.
@@ -111,11 +111,12 @@ this should generally not be the case.
 
 Cluster API maintains the most recent release branch for all supported API and contract versions. Support for this section refers to the ability to backport and release patch versions.
 
-| API Version   | Branch | Supported Until |
-| ------------- | ----------- | ---------- |
-| **v1beta1**   | release-1.0 | current stable |
-| **v1alpha4**  | release-0.4 | 2022-04-06 |
-| **v1alpha3**  | release-0.3 | 2022-02-23 |
+| API Version   | Branch      | Supported Until |
+| ------------- |-------------|-----------------|
+| **v1beta1**   | release-1.1 | current stable  |
+| **v1beta1**   | release-1.0 | 2022-02-02      |
+| **v1alpha4**  | release-0.4 | 2022-04-06      |
+| **v1alpha3**  | release-0.3 | 2022-02-23      |
 
 - The API version is determined from the GroupVersion defined in the top-level `api/` package.
 - The EOL date is determined from the last release available once a new API version is published.
@@ -199,9 +200,8 @@ The [template](https://github.com/kubernetes-sigs/cluster-api/blob/main/docs/pro
 - Proposals or requests for enhacements (RFEs) MUST be associated with an issue.
   - Issues can be placed on the roadmap during planning if there is one or more folks
     that can dedicate time to writing a CAEP and/or implementating it after approval.
-- A proposal SHOULD be introduced and discussed during the weekly community meetings,
-  [Kubernetes SIG Cluster Lifecycle mailing list](https://groups.google.com/forum/#!forum/kubernetes-sig-cluster-lifecycle),
-  or [discuss forum](https://discuss.kubernetes.io/c/contributors/cluster-api/).
+- A proposal SHOULD be introduced and discussed during the weekly community meetings or on the
+ [Kubernetes SIG Cluster Lifecycle mailing list](https://groups.google.com/forum/#!forum/kubernetes-sig-cluster-lifecycle).
   - Submit and discuss proposals using a collaborative writing platform, preferably Google Docs, share documents with edit permissions with the [Kubernetes SIG Cluster Lifecycle mailing list](https://groups.google.com/forum/#!forum/kubernetes-sig-cluster-lifecycle).
 - A proposal in a Google Doc MUST turn into a [Pull Request](https://github.com/kubernetes-sigs/cluster-api/pulls).
 - Proposals MUST be merged and in `implementable` state to be considered part of a major or minor release.
@@ -338,8 +338,11 @@ This project follows the [Kubernetes API conventions](https://github.com/kuberne
 
 Optional fields have the following properties:
 * An optional field MUST be marked with `+optional` and include an `omitempty` JSON tag.
-* Fields SHOULD be pointers if the nil and the zero values (by Go standards) have semantic differences.
-  * Note: This doesn't apply to map or slice types as they are assignable to `nil`.
+* Fields SHOULD be pointers if there is a good reason for it, for example:
+  * the nil and the zero values (by Go standards) have semantic differences.
+    * Note: This doesn't apply to map or slice types as they are assignable to `nil`.
+  * the field is of a struct type, contains only fields with `omitempty` and you want 
+    to prevent that it shows up as an empty object after marshalling (e.g. `kubectl get`) 
 
 #### Example
 
@@ -389,10 +392,10 @@ Examples:
 ```bash
 $ kubectl get kubeadmcontrolplane
 NAMESPACE            NAME                               INITIALIZED   API SERVER AVAILABLE   REPLICAS   READY   UPDATED   UNAVAILABLE   AGE     VERSION
-quick-start-d5ufye   quick-start-ntysk0-control-plane   true          true                   1          1       1                       2m44s   v1.22.0
+quick-start-d5ufye   quick-start-ntysk0-control-plane   true          true                   1          1       1                       2m44s   v1.23.3
 $ kubectl get machinedeployment
 NAMESPACE            NAME                      CLUSTER              REPLICAS   READY   UPDATED   UNAVAILABLE   PHASE       AGE     VERSION
-quick-start-d5ufye   quick-start-ntysk0-md-0   quick-start-ntysk0   1                  1         1             ScalingUp   3m28s   v1.22.0
+quick-start-d5ufye   quick-start-ntysk0-md-0   quick-start-ntysk0   1                  1         1             ScalingUp   3m28s   v1.23.3
 ```
 
 ## Google Doc Viewing Permissions
@@ -432,11 +435,11 @@ Whenever you meet requisites for taking responsibilities in a subarea, the follo
 3. Get positive feedback and +1s in the PR and wait one week lazy consensus after agreement.
 
 As of today there are following OWNERS files/Owner groups defining sub areas:
-- [Clusterctl](cmd/clusterctl)
-- [kubeadm Bootstrap Provider (CABPK)](bootstrap/kubeadm)
-- [kubeadm Control Plane Provider (KCP)](controlplane/kubeadm)
-- [Cluster Managed topologies, ClusterClass](controllers/topology)
-- [Infrastructure Provider Docker (CAPD)](test/infrastructure/docker)
-- [Test](test)
-- [Test Framework](test/framework)
-- [Docs](docs)
+- [Clusterctl](https://github.com/kubernetes-sigs/cluster-api/tree/main/cmd/clusterctl)
+- [kubeadm Bootstrap Provider (CABPK)](https://github.com/kubernetes-sigs/cluster-api/tree/main/bootstrap/kubeadm)
+- [kubeadm Control Plane Provider (KCP)](https://github.com/kubernetes-sigs/cluster-api/tree/main/controlplane/kubeadm)
+- [Cluster Managed topologies, ClusterClass](https://github.com/kubernetes-sigs/cluster-api/tree/main/internal/controllers/topology)
+- [Infrastructure Provider Docker (CAPD)](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/infrastructure/docker)
+- [Test](https://github.com/kubernetes-sigs/cluster-api/tree/main/test)
+- [Test Framework](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/framework)
+- [Docs](https://github.com/kubernetes-sigs/cluster-api/tree/main/docs)

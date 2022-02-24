@@ -86,6 +86,9 @@ The cloud-init script will be saved into a secret `KubeadmConfig.Status.DataSecr
 The `KubeadmConfig` object allows full control of Kubeadm init/join operations by exposing raw `InitConfiguration`,
 `ClusterConfiguration` and `JoinConfiguration` objects.
 
+`InitConfiguration` and `JoinConfiguration` exposes `Patches` field which can be used to specify the patches from a directory,
+this support is available from K8s 1.22 version onwards.
+
 CABPK will fill in some values if they are left empty with sensible defaults:
 
 | `KubeadmConfig` field                           | Default                                                      |
@@ -167,7 +170,7 @@ The user can choose two approaches for certificate management:
 should be provided as a `Secrets` objects in the management cluster.
 2. let KCP to generate the necessary `Secrets` objects with a self-signed certificate authority for kubeadm
 
-See [here](ttps://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/) for more info about certificate management with kubeadm.
+See [here](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/) for more info about certificate management with kubeadm.
 
 ### Additional Features
 The `KubeadmConfig` object supports customizing the content of the config-data. The following examples illustrate how to specify these options. They should be adapted to fit your environment and use case.

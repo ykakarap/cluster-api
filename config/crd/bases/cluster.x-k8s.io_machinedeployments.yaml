@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.7.1-0.20211110210727-ab52f76cc7d1
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: machinedeployments.cluster.x-k8s.io
 spec:
@@ -1285,6 +1285,12 @@ spec:
                             description: 'UID of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids'
                             type: string
                         type: object
+                      nodeDeletionTimeout:
+                        description: NodeDeletionTimeout defines how long the controller
+                          will attempt to delete the Node that the Machine hosts after
+                          the Machine is marked for deletion. A duration of 0 will
+                          retry deletion indefinitely. Defaults to 10 seconds.
+                        type: string
                       nodeDrainTimeout:
                         description: 'NodeDrainTimeout is the total amount of time
                           that the controller will spend on draining a node. The default

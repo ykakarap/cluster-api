@@ -29,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 	"k8s.io/apimachinery/pkg/util/version"
+
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 )
@@ -80,7 +81,7 @@ func (g *gitHubRepository) DefaultVersion() string {
 	return g.defaultVersion
 }
 
-// GetVersion returns the list of versions that are available in a provider repository.
+// GetVersions returns the list of versions that are available in a provider repository.
 func (g *gitHubRepository) GetVersions() ([]string, error) {
 	versions, err := g.getVersions()
 	if err != nil {
@@ -183,9 +184,7 @@ func NewGitHubRepository(providerConfig config.Provider, configVariablesClient c
 
 // getComponentsPath returns the file name.
 func getComponentsPath(path string, rootPath string) string {
-	// filePath = "/filename"
 	filePath := strings.TrimPrefix(path, rootPath)
-	// componentsPath = "filename"
 	componentsPath := strings.TrimPrefix(filePath, "/")
 	return componentsPath
 }
@@ -263,6 +262,8 @@ func (g *gitHubRepository) getReleaseByTag(tag string) (*github.RepositoryReleas
 
 // downloadFilesFromRelease download a file from release.
 func (g *gitHubRepository) downloadFilesFromRelease(release *github.RepositoryRelease, fileName string) ([]byte, error) {
+	ctx := context.TODO()
+
 	cacheID := fmt.Sprintf("%s/%s:%s:%s", g.owner, g.repository, *release.TagName, fileName)
 	if content, ok := cacheFiles[cacheID]; ok {
 		return content, nil
@@ -288,7 +289,12 @@ func (g *gitHubRepository) downloadFilesFromRelease(release *github.RepositoryRe
 		return nil, g.handleGithubErr(err, "failed to download file %q from %q release", *release.TagName, fileName)
 	}
 	if redirect != "" {
-		response, err := http.Get(redirect) //nolint:bodyclose,gosec // (NB: The reader is actually closed in a defer)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, redirect, http.NoBody)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to download file %q from %q release via redirect location %q: failed to create request", *release.TagName, fileName, redirect)
+		}
+
+		response, err := http.DefaultClient.Do(req) //nolint:bodyclose // (NB: The reader is actually closed in a defer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to download file %q from %q release via redirect location %q", *release.TagName, fileName, redirect)
 		}
@@ -309,7 +315,7 @@ func (g *gitHubRepository) downloadFilesFromRelease(release *github.RepositoryRe
 // handleGithubErr wraps error messages.
 func (g *gitHubRepository) handleGithubErr(err error, message string, args ...interface{}) error {
 	if _, ok := err.(*github.RateLimitError); ok {
-		return errors.New("rate limit for github api has been reached. Please wait one hour or get a personal API tokens a assign it to the GITHUB_TOKEN environment variable")
+		return errors.New("rate limit for github api has been reached. Please wait one hour or get a personal API token and assign it to the GITHUB_TOKEN environment variable")
 	}
 	return errors.Wrapf(err, message, args...)
 }

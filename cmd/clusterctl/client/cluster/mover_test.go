@@ -30,12 +30,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test/providers/infrastructure"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type moveTestsFields struct {
@@ -703,7 +704,7 @@ func Test_objectMover_backupTargetObject(t *testing.T) {
 				g.Expect(string(fileContents)).To(Equal(expectedFileContents))
 
 				// Add delay so we ensure the file ModTime of updated files is different from old ones in the original files
-				time.Sleep(time.Millisecond * 5)
+				time.Sleep(time.Millisecond * 50)
 
 				// Running backupTargetObject should override any existing files since it represents a new backup
 				err = mover.backupTargetObject(node, dir)
@@ -761,7 +762,7 @@ func Test_objectMover_restoreTargetObject(t *testing.T) {
 				tempFile, err := os.CreateTemp(dir, "obj")
 				g.Expect(err).NotTo(HaveOccurred())
 
-				_, err = tempFile.Write([]byte(file))
+				_, err = tempFile.WriteString(file)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(tempFile.Close()).To(Succeed())
 			}
@@ -928,7 +929,7 @@ func Test_objectMover_filesToObjs(t *testing.T) {
 
 			for _, fileName := range tt.files {
 				path := filepath.Join(dir, fileName)
-				file, err := os.Create(path)
+				file, err := os.Create(path) //nolint:gosec // No security issue: unit test.
 				if err != nil {
 					return
 				}
@@ -1005,7 +1006,7 @@ func Test_objectMover_restore(t *testing.T) {
 				tempFile, err := os.CreateTemp(dir, "obj")
 				g.Expect(err).NotTo(HaveOccurred())
 
-				_, err = tempFile.Write([]byte(file))
+				_, err = tempFile.WriteString(file)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(tempFile.Close()).To(Succeed())
 			}

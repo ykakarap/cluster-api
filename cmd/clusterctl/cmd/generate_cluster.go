@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client"
 )
 
@@ -58,11 +59,11 @@ var generateClusterClusterCmd = &cobra.Command{
 
 	Example: Examples(`
 		# Generates a yaml file for creating workload clusters using
-		# the pre-installed infrastructure and bootstrap providers.
+		# the pre-installed infrastructure and bootstrap providers.
 		clusterctl generate cluster my-cluster
 
 		# Generates a yaml file for creating workload clusters using
-		# a specific version of the AWS infrastructure provider.
+		# a specific version of the AWS infrastructure provider.
 		clusterctl generate cluster my-cluster --infrastructure=aws:v0.4.1
 
 		# Generates a yaml file for creating workload clusters in a custom namespace.

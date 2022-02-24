@@ -110,11 +110,10 @@ This method of provisioning the cluster would act as a single control point for 
 We are fully aware that in order to exploit the potential of ClusterClass and managed topologies, the following class of problems still needs to be addressed:
 - **Upgrade/rollback strategy**: Implement a strategy to upgrade and rollback the managed topologies.
 - **Extensibility/Transformation**:
-    - Extend ClusterClass patch variables by introducing support for complex types (e.g. object, array, map, type composition (e.g. int or string)).
     - Provide an external mechanism which allows to leverage the full power of a programming language to implement more complex customizations.
 - **Adoption**: Providing a way to convert existing clusters into managed topologies.
 - **Observability**: Build an SDK and enhance the Cluster object status to surface a summary of the status of the topology.
-- **Lifecycle integrations**: Extend ClusterClass to include lifecycle management integrations such as MachineHealthCheck and Cluster Autoscaler to manage the state and health of the managed topologies.
+- **Lifecycle integrations**: Extend ClusterClass to include lifecycle management integrations such as Cluster Autoscaler to manage the state of the managed topologies.
 
 However we are intentionally leaving them out from this initial iteration for the following reasons:
 - We want the community to reach a consensus on cornerstone elements of the design before iterating on additional features.
@@ -181,10 +180,15 @@ the `controlPlaneMachineType` variable accordingly.
 
 **Notes**: Same notes as in Story 4 apply.
 
+#### Story 8 - Easy UX for MachineHealthChecks
+As a cluster operator I want a simple way to define checks to manage the health of the machines in my cluster. 
+
+Instead of defining MachineHealthChecks each time a Cluster is created, there should be a mechanism for creating the same type of health check for each Cluster stamped by a ClusterClass.
+ 
 ### Implementation Details/Notes/Constraints
 
 The following section provides details about the introduction of new types and modifications to existing types to implement the ClusterClass functionality.
-If instead you are eager to see an example of ClusterClass and how the Cluster object will look like, you can jump to the Behavior paragraph.
+If instead you are eager to see an example of ClusterClass and how the Cluster object will look, you can jump to the Behavior paragraph.
 
 #### New API types
 
@@ -237,19 +241,24 @@ type ClusterClassSpec struct {
 
 // ControlPlaneClass defines the class for the control plane.
 type ControlPlaneClass struct {
-	Metadata ObjectMeta `json:"metadata,omitempty"`
+  Metadata ObjectMeta `json:"metadata,omitempty"`
 
-	// LocalObjectTemplate contains the reference to the control plane provider.
-	LocalObjectTemplate `json:",inline"`
+  // LocalObjectTemplate contains the reference to the control plane provider.
+  LocalObjectTemplate `json:",inline"`
 
-	// MachineTemplate defines the metadata and infrastructure information
-	// for control plane machines.
-	//
-	// This field is supported if and only if the control plane provider template
-	// referenced above is Machine based and supports setting replicas.
-	//
-	// +optional
-	MachineInfrastructure *LocalObjectTemplate `json:"machineInfrastructure,omitempty"`
+  // MachineInfrastructure defines the metadata and infrastructure information
+  // for control plane machines.
+  //
+  // This field is supported if and only if the control plane provider template
+  // referenced above is Machine based and supports setting replicas.
+  // +optional
+  MachineInfrastructure *LocalObjectTemplate `json:"machineInfrastructure,omitempty"`
+  
+  // MachineHealthCheck defines a MachineHealthCheck for this ControlPlaneClass.
+  // This field is supported if and only if the ControlPlane provider template
+  // referenced above is Machine based and supports setting replicas.
+  // +optional
+  MachineHealthCheck *MachineHealthCheckClass `json:"machineHealthCheck,omitempty"`
 }
 
 // WorkersClass is a collection of deployment classes.
@@ -270,6 +279,10 @@ type MachineDeploymentClass struct {
   // Template is a local struct containing a collection of templates for creation of
   // MachineDeployment objects representing a set of worker nodes.
   Template MachineDeploymentClassTemplate `json:"template"`
+  
+  // MachineHealthCheck defines a MachineHealthCheck for this MachineDeploymentClass.
+  // +optional
+  MachineHealthCheck *MachineHealthCheckClass `json:"machineHealthCheck,omitempty"`
 }
 
 // MachineDeploymentClassTemplate defines how a MachineDeployment generated from a MachineDeploymentClass
@@ -291,6 +304,42 @@ type LocalObjectTemplate struct {
   // Ref is a required reference to a custom resource
   // offered by a provider.
   Ref *corev1.ObjectReference `json:"ref"`
+}
+
+// MachineHealthCheckClass defines a MachineHealthCheck for a group of Machines.
+type MachineHealthCheckClass struct {
+  // UnhealthyConditions contains a list of the conditions that determine
+  // whether a node is considered unhealthy. The conditions are combined in a
+  // logical OR, i.e. if any of the conditions is met, the node is unhealthy.
+  UnhealthyConditions []UnhealthyCondition `json:"unhealthyConditions,omitempty"`
+
+  // Any further remediation is only allowed if at most "MaxUnhealthy" machines selected by
+  // "selector" are not healthy.
+  // +optional
+  MaxUnhealthy *intstr.IntOrString `json:"maxUnhealthy,omitempty"`
+
+  // Any further remediation is only allowed if the number of machines selected by "selector" as not healthy
+  // is within the range of "UnhealthyRange". Takes precedence over MaxUnhealthy.
+  // Eg. "[3-5]" - This means that remediation will be allowed only when:
+  // (a) there are at least 3 unhealthy machines (and)
+  // (b) there are at most 5 unhealthy machines
+  // +optional
+  UnhealthyRange *string `json:"unhealthyRange,omitempty"`
+
+  // Machines older than this duration without a node will be considered to have
+  // failed and will be remediated.
+  // If you wish to disable this feature, set the value explicitly to 0.
+  // +optional
+  NodeStartupTimeout *metav1.Duration `json:"nodeStartupTimeout,omitempty"`
+
+  // RemediationTemplate is a reference to a remediation template
+  // provided by an infrastructure provider.
+  //
+  // This field is completely optional, when filled, the MachineHealthCheck controller
+  // creates a new object from the template referenced and hands off remediation of the machine to
+  // a controller that lives outside of Cluster API.
+  // +optional
+  RemediationTemplate *corev1.ObjectReference `json:"remediationTemplate,omitempty"`
 }
 ```
 
@@ -325,10 +374,9 @@ type VariableSchema struct{
 The schema implementation will be built on top of the [Open API schema embedded in Kubernetes CRDs](https://github.com/kubernetes/apiextensions-apiserver/blob/master/pkg/apis/apiextensions/types_jsonschema.go).
 To keep the implementation as easy and user-friendly as possible we will only implement the following feature set 
 for now (until further use cases emerge):
-- Basic types:
-    - boolean, integer, number, string
-    - nullable, i.e. each of the basic types can be set to null
+- Basic types: boolean, integer, number, string
 - Basic validation, e.g. format, minimum, maximum, pattern, required, ...
+- Complex types: objects, arrays
 - Defaulting
     - Defaulting will be implemented based on the CRD structural schema library and thus will have the same feature set 
       as CRD defaulting. I.e., it will only be possible to use constant values as defaults.
@@ -342,7 +390,18 @@ for now (until further use cases emerge):
 type ClusterClassPatch struct {
   // Name of the patch.
   Name string `json:"name"`
- 
+
+  // Description is a human-readable description of this patch.
+  Description string `json:"description,omitempty"`
+
+  // EnabledIf is a Go template to be used to calculate if a patch should be enabled.
+  // It can reference variables defined in .spec.variables and builtin variables.
+  // The patch will be enabled if the template evaluates to `true`, otherwise it will
+  // be disabled.
+  // If EnabledIf is not set, the patch will be enabled per default.
+  // +optional
+  EnabledIf *string `json:"enabledIf,omitempty"`
+
   // Definitions define the patches inline.
   // Note: Patches will be applied in the order of the array.
   Definitions []PatchDefinition `json:"definitions,omitempty"`
@@ -389,11 +448,11 @@ type PatchSelectorMatch struct {
   // Note: this will match the controlPlane and also the controlPlane 
   // machineInfrastructure (depending on the kind and apiVersion).
   // +optional
-  ControlPlane *bool `json:"controlPlane,omitempty"`
+  ControlPlane bool `json:"controlPlane,omitempty"`
  
   // InfrastructureCluster selects templates referenced in .spec.infrastructure.
   // +optional
-  InfrastructureCluster *bool `json:"infrastructureCluster,omitempty"`
+  InfrastructureCluster bool `json:"infrastructureCluster,omitempty"`
  
   // MachineDeploymentClass selects templates referenced in specific MachineDeploymentClasses in
   // .spec.workers.machineDeployments.
@@ -405,7 +464,8 @@ type PatchSelectorMatch struct {
 // in specific MachineDeploymentClasses in .spec.workers.machineDeployments.
 type PatchSelectorMatchMachineDeploymentClass struct {
   // Names selects templates by class names.
-  Names []string `json:"names"`
+  // +optional
+  Names []string `json:"names,omitempty"`
 }
 ```
 
@@ -552,6 +612,10 @@ Note: Builtin variables are defined in [Builtin variables](#builtin-variables) b
       // of this value.
       // +optional
       Replicas *int `json:"replicas,omitempty"`
+    
+      // Variables can be used to customize the MachineDeployment through patches.
+      // +optional
+      Variables *MachineDeploymentVariables `json:"variables,omitempty"`
     }
     ```
 1.  The `ClusterVariable` object represents an instance of a variable.
@@ -567,6 +631,16 @@ Note: Builtin variables are defined in [Builtin variables](#builtin-variables) b
       // Note: the value will be validated against the schema
       // of the corresponding ClusterClassVariable from the ClusterClass.
       Value apiextensionsv1.JSON `json:"value"`
+    }
+    ```
+
+1.  The `MachineDeploymentVariables` represents variable overrides for a MachineDeployment topology .
+    ```golang
+    // MachineDeploymentVariables can be used to provide variables for a specific MachineDeployment.
+    type MachineDeploymentVariables struct {
+      // Overrides can be used to override Cluster level variables.
+      // +optional
+      Overrides []ClusterVariable `json:"overrides,omitempty"`
     }
     ```
 
@@ -611,7 +685,7 @@ Builtin variables are available under the `builtin.` prefix. Some examples:
   - all the reference must be in the same namespace of `metadata.Namespace`
   - `spec.workers.machineDeployments[i].class` field must be unique within a ClusterClass.
   - `ClusterClassVariable`:
-    - names must be unique, not empty and not equal to `builtin`
+    - names must be unique, not empty, not equal to `builtin` and should not contain dots
     - schemas must be valid
   - `ClusterClassPatch`:
     - names must be unique and not empty
@@ -620,7 +694,7 @@ Builtin variables are available under the `builtin.` prefix. Some examples:
     - jsonPatches:
       - `op`: one of: `add`, `replace` or `remove`
       - `path`:
-        - must be a valid JSON pointer (RFC 6901) and start with `/spec/`
+        - must be a valid JSON pointer starting with `/spec/`
         - only the indexes `0` (prepend) and `-` (append) in combination with the `add` operation are allowed (append and prepend 
           are the only allowed array modifications).
         - the JSON pointer is not verified against the target CRD as that would require parsing the template CRD, which is impractical in a webhook.
@@ -633,14 +707,13 @@ Builtin variables are available under the `builtin.` prefix. Some examples:
               the template and validating if the result is a valid YAML or JSON value.
     - We will only implement syntax validation. A semantic validation is not possible as the patches will be applied 
       to provider templates. **It’s the responsibility of the ClusterClass author to ensure the patches are semantically valid**.
-
 - For object updates:
   - all the reference must be in the same namespace of `metadata.Namespace`
   - `spec.workers.machineDeployments[i].class` field must be unique within a ClusterClass.
   - `spec.workers.machineDeployments` supports adding new deployment classes.
   - changes should be compliant with the compatibility rules defined in this doc.
   - `ClusterClassVariable`:
-    - names must be unique, not empty and not equal to `builtin`
+    - names must be unique, not empty, not equal to `builtin` and should not contain dots
     - schemas must be valid
     - schemas are mutable
       - The current assumption is that we validate schema changes against existing clusters and block in case the changes are 
@@ -661,6 +734,8 @@ Builtin variables are available under the `builtin.` prefix. Some examples:
   - `spec.topology.workers.machineDeployments[i].name` field must be unique within a Cluster
   - (defaulting) variables are defaulted according to the corresponding `ClusterClassVariable`
   - all required variables must exist and match the schema defined in the corresponding `ClusterClassVariable` in the ClusterClass
+  - (defaulting) nested fields of `spec.topology.workers.machineDeployments[i].variables.overrides` are defaulted according to the corresponding `ClusterClassVariable`
+  - `spec.topology.workers.machineDeployments[i].variables.overrides` must match the schema defined in the corresponding `ClusterClassVariable` in the ClusterClass
 
 - For object updates:
   - If `spec.topology.class` is set it cannot be unset or modified, and if it's unset it cannot be set.
@@ -670,7 +745,9 @@ Builtin variables are available under the `builtin.` prefix. Some examples:
   - A set of worker nodes can be added to or removed from the `spec.topology.workers.machineDeployments` list.
   - (defaulting) variables are defaulted according to the corresponding `ClusterClassVariable`
   - all required variables must exist and match the schema defined in the corresponding `ClusterClassVariable` in the ClusterClass
-
+  - (defaulting) nested fields of `spec.topology.workers.machineDeployments[i].variables.overrides` are defaulted according to the corresponding `ClusterClassVariable`
+  - `spec.topology.workers.machineDeployments[i].variables.overrides` must match the schema defined in the corresponding `ClusterClassVariable` in the ClusterClass
+  
 #### ClusterClass compatibility
 
 There are cases where we must consider whether two ClusterClasses are compatible:
@@ -693,7 +770,7 @@ intentionally use resources without patches and variables to focus on the simple
 ##### Create a new Cluster using ClusterClass object
 1. User creates a ClusterClass object.
    ```yaml
-    apiVersion: cluster.x-k8s.io/v1alpha4
+    apiVersion: cluster.x-k8s.io/v1beta1
     kind: ClusterClass
     metadata:
       name: mixed
@@ -701,44 +778,78 @@ intentionally use resources without patches and variables to focus on the simple
     spec:
       controlPlane:
         ref:
-          apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+          apiVersion: controlplane.cluster.x-k8s.io/v1beta1
           kind: KubeadmControlPlaneTemplate
           name: vsphere-prod-cluster-template-kcp
+        machineInfrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: VSphereMachineTemplate
+            name: linux-vsphere-template
+        # This will create a MachineHealthCheck for ControlPlane machines.
+        machineHealthCheck:
+          nodeStartupTimeout: 3m
+          maxUnhealthy: 33%
+          unhealthyConditions:
+            - type: Ready
+              status: Unknown
+              timeout: 300s
+            - type: Ready
+              status: "False"
+              timeout: 300s
       workers:
-        deployments:
+        machineDeployments:
         - class: linux-worker
           template:
             bootstrap:
               ref:
-                apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+                apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
                 kind: KubeadmConfigTemplate
                 name: existing-boot-ref
             infrastructure:
               ref:
-                apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+                apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
                 kind: VSphereMachineTemplate
                 name: linux-vsphere-template
+          # This will create a health check for each deployment created with the "linux-worker" MachineDeploymentClass
+          machineHealthCheck:
+            unhealthyConditions:
+              - type: Ready
+                status: Unknown
+                timeout: 300s
+              - type: Ready
+                status: "False"
+                timeout: 300s
         - class: windows-worker
           template:
             bootstrap:
               ref:
-                apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+                apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
                 kind: KubeadmConfigTemplate
                 name: existing-boot-ref-windows
             infrastructure:
               ref:
-                apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+                apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
                 kind: VSphereMachineTemplate
                 name: windows-vsphere-template
+          # This will create a health check for each deployment created with the "windows-worker" MachineDeploymentClass
+          machineHealthCheck:
+            unhealthyConditions:
+              - type: Ready
+                status: Unknown
+                timeout: 300s
+              - type: Ready
+                status: "False"
+                timeout: 300s
       infrastructure:
         ref:
-          apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+          apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
           kind: VSphereClusterTemplate
           name: vsphere-prod-cluster-template
    ```
 2. User creates a cluster using the class name and defining the topology.
    ```yaml
-    apiVersion: cluster.x-k8s.io/v1alpha4
+    apiVersion: cluster.x-k8s.io/v1beta1
     kind: Cluster
     metadata:
       name: foo
@@ -785,7 +896,7 @@ intentionally use resources without patches and variables to focus on the simple
     1. Creates the control plane object.
     1. Sets the `spec.infrastructureRef` and `spec.controlPlaneRef` fields for the Cluster object.
     1. Saves the cluster object in the API server.
-5. Machine deployment object creation
+5. MachineDeployment object creation
     1. For each `spec.topology.workers.machineDeployments` item in the list
     1. Create a name `<cluster-name>-<worker-set-name>` (if too long, hash it)
     1. Initializes a new MachineDeployment object.
@@ -801,7 +912,10 @@ intentionally use resources without patches and variables to focus on the simple
        ```
       Note: The topology label needs to be set on the individual Machine objects as well.
     1. Creates the Machine Deployment object in the API server.
-
+6. MachineHealthCheck object creation
+   1. For each `Cluster.spec.topology.workers.machineDeployments` with `ClusterClass.spec.workers.machineDeployments[i].machineDeploymentClass` defined create a MachineHealthCheck with the label `topology.cluster.x-k8s.io/deployment-name: <machine-deployment-topology-name>` as the selector and set the `clusterName` field from the cluster.
+   2. If `Cluster.spec.topology.controlPlane.machineHealthCheckClass` is set create a MachineHealthCheck with the label `cluster.x-k8s.io/control-plane` as the selector and set the `clusterName` field from the cluster.
+   
 ![Creation of cluster with ClusterClass](./images/cluster-class/create.png)
 
 ##### Update an existing Cluster using ClusterClass
@@ -832,7 +946,7 @@ to avoid creating separate ClusterClasses for every small deviation, e.g. a diff
 
 1. User creates a ClusterClass object with variables and patches (other fields are omitted for brevity).
    ```yaml
-   apiVersion: cluster.x-k8s.io/v1alpha4
+   apiVersion: cluster.x-k8s.io/v1beta1
    kind: ClusterClass
    metadata:
      name: my-cluster-class
@@ -853,7 +967,7 @@ to avoid creating separate ClusterClasses for every small deviation, e.g. a diff
      - name: region
        definitions:
        - selector:
-           apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+           apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
            kind: AWSClusterTemplate
          jsonPatches:
          - op: replace
@@ -863,7 +977,7 @@ to avoid creating separate ClusterClasses for every small deviation, e.g. a diff
      - name: controlPlaneMachineType
        definitions:
        - selector:
-           apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+           apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
            kind: AWSMachineTemplate
            matchResources:
              controlPlane: true
@@ -878,7 +992,7 @@ to avoid creating separate ClusterClasses for every small deviation, e.g. a diff
 
 1. User creates a Cluster referencing the ClusterClass created above and defining variables (other fields are omitted for brevity).
    ```yaml
-   apiVersion: cluster.x-k8s.io/v1alpha4
+   apiVersion: cluster.x-k8s.io/v1beta1
    kind: Cluster
    metadata:
      name: my-cluster
@@ -899,6 +1013,7 @@ to avoid creating separate ClusterClasses for every small deviation, e.g. a diff
    - Calculate patches:
      - evaluate patch selector
      - evaluate patch values
+       - if variable overrides are set, they are used instead of the Cluster-level variables. 
    - Apply patches to our local copies of the templates. 
      <br>**Note**: Patches are applied in the order in which they are defined in the ClusterClass.
 

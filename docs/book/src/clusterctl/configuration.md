@@ -57,7 +57,7 @@ the environment variable takes precedence.
 While doing init, clusterctl checks if there is a version of cert-manager already installed. If not, clusterctl will
 install a default version.
 
-By default, cert-manager will be fetched from `https://github.com/jetstack/cert-manager/releases`; however, if the user
+By default, cert-manager will be fetched from `https://github.com/cert-manager/cert-manager/releases`; however, if the user
 wants to use a different repository, it is possible to use the following configuration:
 
 ```yaml
@@ -169,6 +169,9 @@ overridesFolder: /Users/foobar/workspace/dev-releases
 
 Image override is an advanced feature and wrong configuration can easily lead to non-functional clusters.
 It's strongly recommended to test configurations on dev/test environments before using this functionality in production.
+
+This feature must always be used in conjunction with 
+[version tag](commands/init.md#provider-version) when executing clusterctl commands.
 
 </aside>
 

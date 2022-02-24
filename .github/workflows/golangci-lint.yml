@@ -2,8 +2,6 @@ name: golangci-lint
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches:
-      - main
 jobs:
   golangci:
     name: lint
@@ -19,5 +17,5 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v2
         with:
-          version: v1.43.0
+          version: v1.44.0
           working-directory: ${{matrix.working-directory}}

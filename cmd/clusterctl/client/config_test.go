@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
+
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/cluster"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
@@ -68,6 +69,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.DOProviderName,
 				config.DockerProviderName,
 				config.GCPProviderName,
+				config.HetznerProviderName,
 				config.IBMCloudProviderName,
 				config.MAASProviderName,
 				config.Metal3ProviderName,
@@ -101,6 +103,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.DOProviderName,
 				config.DockerProviderName,
 				config.GCPProviderName,
+				config.HetznerProviderName,
 				config.IBMCloudProviderName,
 				config.MAASProviderName,
 				config.Metal3ProviderName,
@@ -822,7 +825,7 @@ func newFakeClientWithoutCluster(configClient config.Client) *fakeClient {
 		InjectConfig(fake.configClient),
 		InjectRepositoryFactory(func(input RepositoryClientFactoryInput) (repository.Client, error) {
 			if _, ok := fake.repositories[input.Provider.ManifestLabel()]; !ok {
-				return nil, errors.Errorf("Repository for kubeconfig %q does not exist.", input.Provider.ManifestLabel())
+				return nil, errors.Errorf("repository for kubeconfig %q does not exist", input.Provider.ManifestLabel())
 			}
 			return fake.repositories[input.Provider.ManifestLabel()], nil
 		}),

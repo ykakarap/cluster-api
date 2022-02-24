@@ -21,11 +21,12 @@ import (
 	"reflect"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/collections"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // MatchesMachineSpec returns a filter to find all machines that matches with KCP config and do not require any rollout.
@@ -68,7 +69,7 @@ func MatchesTemplateClonedFrom(infraConfigs map[string]*unstructured.Unstructure
 			return false
 		}
 
-		// Check if the machine template metadata matches with the infrastructure object.
+		// Check if the machine template metadata matches with the infrastructure object.
 		if !matchMachineTemplateMetadata(kcp, infraObj) {
 			return false
 		}
@@ -102,7 +103,7 @@ func MatchesKubeadmBootstrapConfig(machineConfigs map[string]*bootstrapv1.Kubead
 			return true
 		}
 
-		// Check if the machine template metadata matches with the infrastructure object.
+		// Check if the machine template metadata matches with the infrastructure object.
 		if !matchMachineTemplateMetadata(kcp, machineConfig) {
 			return false
 		}
@@ -160,6 +161,13 @@ func matchInitOrJoinConfiguration(machineConfig *bootstrapv1.KubeadmConfig, kcp 
 	// takes the KubeadmConfigSpec from KCP and applies the transformations required
 	// to allow a comparison with the KubeadmConfig referenced from the machine.
 	kcpConfig := getAdjustedKcpConfig(kcp, machineConfig)
+
+	// Default both KubeadmConfigSpecs before comparison.
+	// *Note* This assumes that newly added default values never
+	// introduce a semantic difference to the unset value.
+	// But that is something that is ensured by our API guarantees.
+	bootstrapv1.DefaultKubeadmConfigSpec(kcpConfig)
+	bootstrapv1.DefaultKubeadmConfigSpec(&machineConfig.Spec)
 
 	// cleanups all the fields that are not relevant for the comparison.
 	cleanupConfigFields(kcpConfig, machineConfig)

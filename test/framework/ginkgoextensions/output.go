@@ -58,7 +58,7 @@ func EnableFileLogging(path string) (io.WriteCloser, error) {
 }
 
 func newFileWriter(path string) (io.WriteCloser, error) {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // No security issue: path is safe.
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create file")
 	}
@@ -72,7 +72,7 @@ type fileWriter struct {
 }
 
 func (w *fileWriter) Write(data []byte) (n int, err error) {
-	return w.file.Write([]byte("[" + time.Now().Format(time.RFC3339) + "] " + string(data)))
+	return w.file.WriteString("[" + time.Now().Format(time.RFC3339) + "] " + string(data))
 }
 
 func (w *fileWriter) Close() error {

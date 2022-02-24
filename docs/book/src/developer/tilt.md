@@ -7,29 +7,16 @@ workflow that offers easy deployments and rapid iterative builds.
 
 ## Prerequisites
 
-1. [Docker](https://docs.docker.com/install/) v19.03 or newer
-1. [kind](https://kind.sigs.k8s.io) v0.9 or newer (other clusters can be
+1. [Docker](https://docs.docker.com/install/): v19.03 or newer
+1. [kind](https://kind.sigs.k8s.io): v0.9 or newer (other clusters can be
    used if `preload_images_for_kind` is set to false)
-1. [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
-   standalone (`kubectl kustomize` does not work because it is missing
-   some features of kustomize v3)
-1. [Tilt](https://docs.tilt.dev/install.html) v0.22.2 or newer
-1. [envsubst](https://github.com/drone/envsubst) or similar to handle
-   clusterctl var replacement. Note: drone/envsubst releases v1.0.2 and
-   earlier do not have the binary packaged under cmd/envsubst. It is
-   available in Go pseudo-version `v1.0.3-0.20200709231038-aa43e1c1a629`
-1. Clone the [Cluster
-   API](https://github.com/kubernetes-sigs/cluster-api) repository
+1. [Tilt](https://docs.tilt.dev/install.html): v0.22.2 or newer
+1. [kustomize](https://github.com/kubernetes-sigs/kustomize): provided via `make kustomize`
+1. [envsubst](https://github.com/drone/envsubst): provided via `make envsubst`
+1. [helm](https://github.com/helm/helm): v3.7.1 or newer 
+1. Clone the [Cluster API](https://github.com/kubernetes-sigs/cluster-api) repository
    locally
 1. Clone the provider(s) you want to deploy locally as well
-
-We provide a make target to generate the envsubst binary if desired.
-See the [provider contract](./../clusterctl/provider-contract.md) for
-more details about how clusterctl uses variables.
-
-```
-make envsubst
-```
 
 ## Getting started
 
@@ -48,19 +35,28 @@ You can see the status of the cluster with:
 kubectl cluster-info --context kind-capi-test
 ```
 
-### Create a tilt-settings.json file
+### Create a tilt-settings file
 
-Next, create a `tilt-settings.json` file and place it in your local copy of `cluster-api`. Here is an example:
+Next, create a `tilt-settings.yaml` file and place it in your local copy of `cluster-api`. Here is an example:
 
-```json
-{
-  "default_registry": "gcr.io/your-project-name-here",
-  "provider_repos": ["../cluster-api-provider-aws"],
-  "enable_providers": ["aws", "docker", "kubeadm-bootstrap", "kubeadm-control-plane"]
-}
+```yaml
+default_registry: gcr.io/your-project-name-here
+provider_repos:
+- ../cluster-api-provider-aws
+enable_providers:
+- aws
+- docker
+- kubeadm-bootstrap
+- kubeadm-control-plane
 ```
 
-#### tilt-settings.json fields
+<aside class="note">
+
+If you prefer JSON, you can create a `tilt-settings.json` file instead. YAML will be preferred if both files are present.
+
+</aside>
+
+#### tilt-settings fields
 
 **allowed_contexts** (Array, default=[]): A list of kubeconfig contexts Tilt is allowed to use. See the Tilt documentation on
 [allow_k8s_contexts](https://docs.tilt.dev/api.html#api.allow_k8s_contexts) for more details.
@@ -69,7 +65,7 @@ Next, create a `tilt-settings.json` file and place it in your local copy of `clu
 documentation](https://docs.tilt.dev/api.html#api.default_registry) for more details.
 
 **provider_repos** (Array[]String, default=[]): A list of paths to all the providers you want to use. Each provider must have a
-`tilt-provider.json` file describing how to build the provider.
+`tilt-provider.yaml` or `tilt-provider.json` file describing how to build the provider.
 
 **enable_providers** (Array[]String, default=['docker']): A list of the providers to enable. See [available providers](#available-providers)
 for more details.
@@ -79,8 +75,8 @@ for more details.
 **kustomize_substitutions** (Map{String: String}, default={}): An optional map of substitutions for `${}`-style placeholders in the
 provider's yaml.
 
-**deploy_observability** (Bool, default=false): If set to true, it will instrall grafana, loki and promtail in the dev
-cluster. Grafana UI will be accessible via a link in the tilt console.
+**deploy_observability** ([string], default=[]): If set, installs on the dev cluster one of more observability
+tools. Supported values are `grafana`, `loki`, `promtail` and/or `prometheus` (Note: the UI for `grafana` and `prometheus` will be accessible via a link in the tilt console).
 Important! This feature requires the `helm` command to be available in the user's path.
 
 **debug** (Map{string: Map} default{}): A map of named configurations for the provider. The key is the name of the provider.
@@ -107,15 +103,13 @@ Supported settings:
 
     Example: Using the configuration below:
 
-    ```json
-      "debug": {
-        "core": {
-          "continue": false,
-          "port": 30000,
-          "profiler_port": 40000,
-          "metrics_port": 40001
-        }
-      },
+    ```yaml
+      debug:
+        core:
+          continue: false
+          port: 30000
+          profiler_port: 40000
+          metrics_port: 40001
     ```
 
     ##### Wiring up debuggers
@@ -142,20 +136,20 @@ Supported settings:
     }
     ```
 
-    ###### Goland
-  With the above example, you can configure [a Go Remote run/debug
-  configuration](https://www.jetbrains.com/help/go/attach-to-running-go-processes-with-debugger.html#step-3-create-the-remote-run-debug-configuration-on-the-client-computer)
-  pointing at port 30000.
+    ###### Goland / Intellij
+    With the above example, you can configure [a Go Remote run/debug
+    configuration](https://www.jetbrains.com/help/go/attach-to-running-go-processes-with-debugger.html#step-3-create-the-remote-run-debug-configuration-on-the-client-computer)
+    pointing at port 30000.
 
+<br/>
 {{#tabs name:"tab-tilt-kustomize-substitution" tabs:"AWS,Azure,DigitalOcean,GCP"}}
 {{#tab AWS}}
 
 For example, if the yaml contains `${AWS_B64ENCODED_CREDENTIALS}`, you could do the following:
 
-```json
-"kustomize_substitutions": {
-  "AWS_B64ENCODED_CREDENTIALS": "your credentials here"
-}
+```yaml
+kustomize_substitutions:
+  AWS_B64ENCODED_CREDENTIALS: "your credentials here"
 ```
 
 {{#/tab }}
@@ -184,26 +178,24 @@ An Azure Service Principal is needed for populating the controller manifests. Th
   AZURE_CLIENT_ID=$(az ad sp show --id http://$AZURE_SERVICE_PRINCIPAL_NAME --query appId --output tsv)
   ```
 
-Add the output of the following as a section in your `tilt-settings.json`:
+Add the output of the following as a section in your `tilt-settings.yaml`:
 
   ```shell
   cat <<EOF
-  "kustomize_substitutions": {
-     "AZURE_SUBSCRIPTION_ID_B64": "$(echo "${AZURE_SUBSCRIPTION_ID}" | tr -d '\n' | base64 | tr -d '\n')",
-     "AZURE_TENANT_ID_B64": "$(echo "${AZURE_TENANT_ID}" | tr -d '\n' | base64 | tr -d '\n')",
-     "AZURE_CLIENT_SECRET_B64": "$(echo "${AZURE_CLIENT_SECRET}" | tr -d '\n' | base64 | tr -d '\n')",
-     "AZURE_CLIENT_ID_B64": "$(echo "${AZURE_CLIENT_ID}" | tr -d '\n' | base64 | tr -d '\n')"
-    }
+  kustomize_substitutions:
+     AZURE_SUBSCRIPTION_ID_B64: "$(echo "${AZURE_SUBSCRIPTION_ID}" | tr -d '\n' | base64 | tr -d '\n')"
+     AZURE_TENANT_ID_B64: "$(echo "${AZURE_TENANT_ID}" | tr -d '\n' | base64 | tr -d '\n')"
+     AZURE_CLIENT_SECRET_B64: "$(echo "${AZURE_CLIENT_SECRET}" | tr -d '\n' | base64 | tr -d '\n')"
+     AZURE_CLIENT_ID_B64: "$(echo "${AZURE_CLIENT_ID}" | tr -d '\n' | base64 | tr -d '\n')"
   EOF
 ```
 
 {{#/tab }}
 {{#tab DigitalOcean}}
 
-```json
-"kustomize_substitutions": {
-  "DO_B64ENCODED_CREDENTIALS": "your credentials here"
-}
+```yaml
+kustomize_substitutions:
+  DO_B64ENCODED_CREDENTIALS: "your credentials here"
 ```
 
 {{#/tab }}
@@ -214,10 +206,9 @@ You can generate a base64 version of your GCP json credentials file using:
 base64 -i ~/path/to/gcp/credentials.json
 ```
 
-```json
-"kustomize_substitutions": {
-  "GCP_B64ENCODED_CREDENTIALS": "your credentials here"
-}
+```yaml
+kustomize_substitutions:
+  GCP_B64ENCODED_CREDENTIALS: "your credentials here"
 ```
 
 {{#/tab }}
@@ -235,14 +226,11 @@ for this provider. Each item in the array will be passed in to the manager for t
 
 Example:
 
-```json
-{
-    "extra_args": {
-        "core": ["--feature-gates=MachinePool=true"],
-        "kubeadm-bootstrap": ["--feature-gates=MachinePool=true"],
-        "azure": ["--feature-gates=MachinePool=true"]
-    }
-}
+```yaml
+extra_args:
+  core: ["--feature-gates=MachinePool=true"]
+  kubeadm-bootstrap: ["--feature-gates=MachinePool=true"]
+  azure: ["--feature-gates=MachinePool=true"]
 ```
 
 With this config, the respective managers will be invoked with:
@@ -275,7 +263,7 @@ some of the clusterctl commands like clusterctl config won't work.
 
 This limitation is an acceptable trade-off while executing fast dev-test iterations on controllers logic. If instead
 you are interested in testing clusterctl workflows, you should refer to the
-[clusterctl developer instructions](https://cluster-api.sigs.k8s.io/clusterctl/developers.html).
+[clusterctl developer instructions](../clusterctl/developers.md).
 
 </aside>
 
@@ -286,22 +274,24 @@ The following providers are currently defined in the Tiltfile:
 * **core**: cluster-api itself (Cluster/Machine/MachineDeployment/MachineSet/KubeadmConfig/KubeadmControlPlane)
 * **docker**: Docker provider (DockerCluster/DockerMachine)
 
-### tilt-provider.json
+### tilt-provider configuration
 
-A provider must supply a `tilt-provider.json` file describing how to build it. Here is an example:
+A provider must supply a `tilt-provider.yaml` file describing how to build it. Here is an example:
 
-```json
-{
-    "name": "aws",
-    "config": {
-        "image": "gcr.io/k8s-staging-cluster-api-aws/cluster-api-aws-controller",
-        "live_reload_deps": [
-            "main.go", "go.mod", "go.sum", "api", "cmd", "controllers", "pkg"
-        ]
-    },
-    "label": "CAPA"
-}
+```yaml
+name: aws
+label: CAPA
+config:
+  image: "gcr.io/k8s-staging-cluster-api-aws/cluster-api-aws-controller",
+  live_reload_deps: ["main.go", "go.mod", "go.sum", "api", "cmd", "controllers", "pkg"]
 ```
+
+
+<aside class="note">
+
+If you prefer JSON, you can create a `tilt-provider.json` file instead. YAML will be preferred if both files are present.
+
+</aside>
 
 #### config fields
 
@@ -349,13 +339,13 @@ is immediately before the "real work" happens.
 
 At a high level, the Tiltfile performs the following actions:
 
-1. Read `tilt-settings.json`
+1. Read `tilt-settings.yaml`
 1. Configure the allowed Kubernetes contexts
 1. Set the default registry
 1. Define the `providers` map
 1. Include user-defined Tilt files
 1. Deploy cert-manager
-1. Enable providers (`core` + what is listed in `tilt-settings.json`)
+1. Enable providers (`core` + what is listed in `tilt-settings.yaml`)
     1. Build the manager binary locally as a `local_resource`
     1. Invoke `docker_build` for the provider
     1. Invoke `kustomize` for the provider's `config/` directory
