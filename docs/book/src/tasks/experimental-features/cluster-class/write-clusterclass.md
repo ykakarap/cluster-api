@@ -382,11 +382,18 @@ In addition to variables specified in the ClusterClass, the following builtin va
 referenced in patches:
 - `builtin.cluster.{name,namespace}`
 - `builtin.cluster.topology.{version,class}`
-- `builtin.controlPlane.{replicas,version}`
+- `builtin.cluster.network.{serviceDomain,services,pods,ipFamily}`
+- `builtin.controlPlane.{replicas,version,name}`
     - Please note, these variables are only available when patching control plane or control plane 
       machine templates.
+- `builtin.controlPlane.machineTemplate.infrastructureRef.name`
+    - Please note, these variables are only available when using a control plane with machines and 
+      when patching control plane or control plane machine templates.
 - `builtin.machineDeployment.{replicas,version,class,name,topologyName}`
     - Please note, these variables are only available when patching the templates of a MachineDeployment 
+      and contain the values of the current `MachineDeployment` topology.
+- `builtin.machineDeployment.{infrastructureRef.name,bootstrap.configRef.name}`
+    - Please note, these variables are only available when patching the templates of a MachineDeployment
       and contain the values of the current `MachineDeployment` topology.
 
 Builtin variables can be referenced just like regular variables, e.g.:
@@ -636,7 +643,12 @@ Of course the same is possible by adding a boolean variable to a configuration o
 
 Builtin variables can be leveraged to apply a patch only for a specific Kubernetes version.
 ```yaml
-    enabledIf: "{{ if eq "v1.21.1" .builtin.controlPlane.version }}true{{end}}"
+    enabledIf: '{{ semverCompare "1.21.1" .builtin.controlPlane.version }}'
+```
+
+With `semverCompare` and `coalesce` a feature can be enabled in newer versions of Kubernetes for both KubeadmConfigTemplate and KubeadmControlPlane.
+```yaml
+    enabledIf: '{{ semverCompare "^1.22.0" (coalesce .builtin.controlPlane.version .builtin.machineDeployment.version )}}'
 ```
 
 <!-- links -->
