@@ -1,0 +1,26 @@
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+
+version: 2
+updates:
+  - package-ecosystem: "gomod" # See documentation for possible values
+    directory: "/" # Location of package manifests
+    target-branch: "dev"
+    schedule:
+      interval: "daily"
+    allow:
+      - dependency-name: "github.com/docker/distribution"
+      - dependency-name: "github.com/coredns/corefile-migration"
+      - dependency-name: "go.etcd.io/etcd/api/v3"
+      - dependency-name: "go.etcd.io/etcd/client/v3"
+      - dependency-name: "google.golang.org/grpc"
+      - dependency-name: "k8s.io/api"
+      - dependency-name: "k8s.io/apiextensions-apiserver"
+      - dependency-name: "k8s.io/apimachinery"
+      - dependency-name: "sigs.k8s.io/yaml"
+      - dependency-name: "github.com/Masterminds/sprig/v3"
+      - dependency-name: "github.com/evanphx/json-patch/v5"
+      - dependency-name: "github.com/drone/envsubst/v2"
+      
