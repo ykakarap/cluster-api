@@ -309,6 +309,18 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 
 	// Control plane and machine deployments are stable.
 	// Ready to pick up the topology version.
+
+	// Call the BeforeClusterUpgradeHook extensions.
+	res, err := registry.Call(BeforeClusterUpgradeHook{})
+	if err != nil {
+		return *currentVersion, errors.Wrap(err, "BeforeClusterUpgradeHook extensions failed")
+	}
+	if res.RetryAfterSeconds != 0 {
+		// don't pickup the new version yet.
+		// TODO: how to recheck some time without blocking the entire reconcile operation?
+		return *currentVersion, nil
+	}
+
 	return desiredVersion, nil
 }
 
