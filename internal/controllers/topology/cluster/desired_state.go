@@ -311,7 +311,7 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 	// Ready to pick up the topology version.
 
 	// Call the BeforeClusterUpgradeHook extensions.
-	res, err := registry.Call(BeforeClusterUpgradeHook{})
+	res, err := registry.Call(BeforeClusterUpgradeHook{}, s.Current.Cluster)
 	if err != nil {
 		return *currentVersion, errors.Wrap(err, "BeforeClusterUpgradeHook extensions failed")
 	}
@@ -320,7 +320,9 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 		// TODO: how to recheck some time without blocking the entire reconcile operation?
 		return *currentVersion, nil
 	}
-
+	if err := registry.Track(AfterClusterUpgradeHook{}, s.Current.Cluster); err != nil {
+		return "", errors.Wrap(err, "failed to track upgrade operation in registry")
+	}
 	return desiredVersion, nil
 }
 
@@ -610,6 +612,13 @@ func computeMachineDeploymentVersion(s *scope.Scope, desiredControlPlaneState *s
 	// If any of the MachineDeployments is rolling out, do not upgrade the machine deployment yet.
 	if s.Current.MachineDeployments.IsAnyRollingOut() {
 		s.UpgradeTracker.MachineDeployments.MarkPendingUpgrade(currentMDState.Object.Name)
+		return currentVersion, nil
+	}
+
+	// The control plane and machine deployment might be stable but
+	// it could still be pending an update, in that case do not pick up the
+	// new version yet.
+	if s.UpgradeTracker.ControlPlane.PendingUpgrade {
 		return currentVersion, nil
 	}
 

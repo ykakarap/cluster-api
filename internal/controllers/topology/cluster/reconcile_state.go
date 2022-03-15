@@ -60,6 +60,10 @@ func (r *Reconciler) reconcileState(ctx context.Context, s *scope.Scope) error {
 		return err
 	}
 
+	if err := r.reconcileAfterHooks(ctx, s); err != nil {
+		return err
+	}
+
 	// Reconcile desired state of the InfrastructureCluster object.
 	if err := r.reconcileInfrastructureCluster(ctx, s); err != nil {
 		return err
@@ -77,6 +81,40 @@ func (r *Reconciler) reconcileState(ctx context.Context, s *scope.Scope) error {
 
 	// Reconcile desired state of the MachineDeployment objects.
 	return r.reconcileMachineDeployments(ctx, s)
+}
+
+func (r *Reconciler) reconcileAfterHooks(ctx context.Context, s *scope.Scope) error {
+	// check if the upgrade operation was being tracked
+	// if the operation operation is being tracked then check if the cluster is fully upgraded
+	if registry.Tracked(AfterClusterUpgradeHook{}, s.Current.Cluster) {
+		cpIsUpgrading, err := contract.ControlPlane().IsUpgrading(s.Current.ControlPlane.Object)
+		if err != nil {
+			return nil
+		}
+		cpIsScaling := false
+		if s.Blueprint.Topology.ControlPlane.Replicas != nil {
+			cpIsScaling, err = contract.ControlPlane().IsScaling(s.Current.ControlPlane.Object)
+			if err != nil {
+				return err
+			}
+		}
+		if !s.UpgradeTracker.ControlPlane.PendingUpgrade &&
+			!cpIsUpgrading &&
+			!cpIsScaling &&
+			!s.UpgradeTracker.MachineDeployments.PendingUpgrade() &&
+			!s.Current.MachineDeployments.IsAnyRollingOut() &&
+			len(s.UpgradeTracker.MachineDeployments.RolloutNames()) == 0 {
+			// At this point the cluster is stable at the version specific in the topology spec.
+			// Call the AfterClusterUpgradeHook. Since the hook was expected to be called (cluster reached stable
+			// state after an upgrade) the extensions associated with the hook will be called.
+			_, err := registry.Call(AfterClusterUpgradeHook{}, s.Current.Cluster)
+			if err != nil {
+				return errors.Wrapf(err, "failed to call %T hook", AfterClusterUpgradeHook{})
+			}
+		}
+	}
+
+	return nil
 }
 
 // Reconcile the Cluster shim, a temporary object used a mean to collect objects/templates

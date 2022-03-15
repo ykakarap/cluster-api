@@ -114,6 +114,8 @@ func (r *Reconciler) SetupForDryRun(recorder record.EventRecorder) {
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	registry.SetClient(r.Client)
+
 	// Fetch the Cluster instance.
 	cluster := &clusterv1.Cluster{}
 	// Use the live client here so that we do not reconcile a stale cluster object.

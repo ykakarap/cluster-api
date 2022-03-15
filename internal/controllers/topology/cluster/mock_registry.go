@@ -1,9 +1,17 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+	"strings"
+
+	"github.com/pkg/errors"
+	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const HookTrackerAnnotationKey = "hooks.x-cluster.k8s.io/tracking"
 
 var registry *Registry
 
@@ -32,6 +40,7 @@ func (e *Extension) Handle() *Result {
 
 type Registry struct {
 	hooksMap map[reflect.Type]*Extension
+	client   client.Client
 }
 
 func (r *Registry) Register(hook interface{}, ext *Extension) {
@@ -39,7 +48,13 @@ func (r *Registry) Register(hook interface{}, ext *Extension) {
 	r.hooksMap[hookType] = ext
 }
 
-func (r *Registry) Call(hook interface{}) (*Result, error) {
+func (r *Registry) SetClient(client client.Client) {
+	if r.client == nil {
+		r.client = client
+	}
+}
+
+func (r *Registry) Call(hook interface{}, obj client.Object) (*Result, error) {
 	hookType := reflect.TypeOf(hook)
 	extension, ok := r.hooksMap[hookType]
 	if !ok {
@@ -52,7 +67,67 @@ func (r *Registry) Call(hook interface{}) (*Result, error) {
 	}
 	res := extension.Handle()
 	fmt.Printf("Runtime Extension %q returned result %+v\n", extension.Name, res)
+	if res.Error == nil && res.RetryAfterSeconds == 0 {
+		// If the hook is called successfully then we can drop it form the tracker
+		r.Done(hook, obj)
+	}
 	return res, res.Error
+}
+
+func (r *Registry) Track(hook interface{}, obj client.Object) (retErr error) {
+	patchHelper, err := patch.NewHelper(obj, r.client)
+	if err != nil {
+		return errors.Wrap(err, "failed to create a patch helper")
+	}
+	defer func() {
+		if err := patchHelper.Patch(context.TODO(), obj); err != nil {
+			retErr = errors.Wrap(err, "failed to patch the object")
+		}
+	}()
+	hookName := reflect.TypeOf(hook).Name()
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	tracker := annotations[HookTrackerAnnotationKey]
+	tracker = addToAnnotation(tracker, hookName)
+	annotations[HookTrackerAnnotationKey] = tracker
+	obj.SetAnnotations(annotations)
+	return nil
+}
+
+func (r *Registry) Tracked(hook interface{}, obj client.Object) bool {
+	hookName := reflect.TypeOf(hook).Name()
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		return false
+	}
+	return isInAnnotation(
+		annotations[HookTrackerAnnotationKey],
+		hookName,
+	)
+}
+
+func (r *Registry) Done(hook interface{}, obj client.Object) (retErr error) {
+	patchHelper, err := patch.NewHelper(obj, r.client)
+	if err != nil {
+		return errors.Wrap(err, "failed to create a patch helper")
+	}
+	defer func() {
+		if err := patchHelper.Patch(context.TODO(), obj); err != nil {
+			retErr = errors.Wrap(err, "failed to patch the object")
+		}
+	}()
+	hookName := reflect.TypeOf(hook).Name()
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	tracker := annotations[HookTrackerAnnotationKey]
+	tracker = removeFromAnnotation(tracker, hookName)
+	annotations[HookTrackerAnnotationKey] = tracker
+	obj.SetAnnotations(annotations)
+	return nil
 }
 
 // BeforeClusterUpgradeExtension
@@ -68,9 +143,7 @@ var BeforeClusterUpgradeExtension = &Extension{
 var AfterClusterUpgradeExtension = &Extension{
 	Name: "AfterClusterUpgradeExtension",
 	Results: []*Result{
-		{30, nil}, // Success - retry after 30 sec
-		{30, nil}, // Success - retry after 30 sec
-		{0, nil},  // Success
+		{0, nil}, // Success
 	},
 }
 
@@ -79,6 +152,52 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func addToAnnotation(list, hook string) string {
+	hooks := strings.Split(list, ",")
+	res := addToListIfMissing(hooks, hook)
+	return strings.Join(res, ",")
+}
+
+func removeFromAnnotation(list, hook string) string {
+	hooks := strings.Split(list, ",")
+	res := removeFromList(hooks, hook)
+	return strings.Join(res, ",")
+}
+
+func isInAnnotation(list, hook string) bool {
+	hooks := strings.Split(list, ",")
+	for _, v := range hooks {
+		if v == hook {
+			return true
+		}
+	}
+	return false
+}
+
+func addToListIfMissing(list []string, item string) []string {
+	found := false
+	for _, v := range list {
+		if v == item {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return append(list, item)
+	}
+	return list
+}
+
+func removeFromList(list []string, item string) []string {
+	res := []string{}
+	for _, v := range list {
+		if v != item {
+			res = append(res, v)
+		}
+	}
+	return res
 }
 
 func init() {
