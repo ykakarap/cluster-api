@@ -19,6 +19,8 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -145,10 +147,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Re
 		log.Info("Reconciliation is paused for this object")
 		return ctrl.Result{}, nil
 	}
-
+	// Register and Call AfterFirstControlPlaneReadyHook and Call BeforeClusterCreateHook
+	if cluster.Spec.InfrastructureRef == nil {
+		res, err := registry.Call(BeforeClusterCreateHook{}, cluster)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if res.RetryAfterSeconds != 0 {
+			retryAfter, _ := time.ParseDuration(strconv.Itoa(res.RetryAfterSeconds))
+			return ctrl.Result{RequeueAfter: retryAfter}, nil
+		}
+	}
 	// In case the object is deleted, the managed topology stops to reconcile;
 	// (the other controllers will take care of deletion).
 	if !cluster.ObjectMeta.DeletionTimestamp.IsZero() {
+		// TODO: Decide if this should be wrapped in a Tracked call.
+		// TODO: Could we only call this if there is only one finalizer left?
+		res, err := registry.Call(BeforeClusterDeleteHook{}, cluster)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if res.RetryAfterSeconds != 0 {
+			retryAfter, _ := time.ParseDuration(strconv.Itoa(res.RetryAfterSeconds))
+			return ctrl.Result{RequeueAfter: retryAfter}, nil
+		}
 		// TODO: When external patching is supported, we should handle the deletion
 		// of those external CRDs we created.
 		return ctrl.Result{}, nil

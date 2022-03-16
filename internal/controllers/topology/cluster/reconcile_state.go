@@ -84,8 +84,20 @@ func (r *Reconciler) reconcileState(ctx context.Context, s *scope.Scope) error {
 }
 
 func (r *Reconciler) reconcileAfterHooks(ctx context.Context, s *scope.Scope) error {
+	err := registry.Track(BeforeClusterDeleteHook{}, s.Current.Cluster)
+	if err != nil {
+		return err
+	}
+	// Track BeforeClusterDelete and AfterFirstControlPlaneReadyHooks
+	//TODO: This hook are only registered once right now. Should they be reconciled so hooks can be added during the cluster lifecycle?
+	if s.Current.Cluster.Spec.InfrastructureRef == nil {
+		err := registry.Track(AfterFirstControlPlaneReadyHook{}, s.Current.Cluster)
+		if err != nil {
+			return err
+		}
+	}
 	// check if the upgrade operation was being tracked
-	// if the operation operation is being tracked then check if the cluster is fully upgraded
+	// if the operation is being tracked then check if the cluster is fully upgraded
 	if registry.Tracked(AfterClusterUpgradeHook{}, s.Current.Cluster) {
 		cpIsUpgrading, err := contract.ControlPlane().IsUpgrading(s.Current.ControlPlane.Object)
 		if err != nil {
@@ -113,7 +125,19 @@ func (r *Reconciler) reconcileAfterHooks(ctx context.Context, s *scope.Scope) er
 			}
 		}
 	}
-
+	if registry.Tracked(AfterFirstControlPlaneReadyHook{}, s.Current.Cluster) {
+		for _, condition := range s.Current.Cluster.GetConditions() {
+			if condition.Type == clusterv1.ControlPlaneReadyCondition {
+				if condition.Status == "True" {
+					_, err := registry.Call(AfterFirstControlPlaneReadyHook{}, s.Current.Cluster)
+					if err != nil {
+						return err
+					}
+					return nil
+				}
+			}
+		}
+	}
 	return nil
 }
 
