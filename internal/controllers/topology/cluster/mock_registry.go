@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/cluster-api/util/patch"
 )
 
 const HookTrackerAnnotationKey = "hooks.x-cluster.k8s.io/tracking"
@@ -25,6 +26,9 @@ type Result struct {
 // Hooks
 type BeforeClusterUpgradeHook struct{}
 type AfterClusterUpgradeHook struct{}
+type BeforeClusterCreateHook struct{}
+type BeforeClusterDeleteHook struct{}
+type AfterFirstControlPlaneReadyHook struct{}
 
 type Extension struct {
 	Name    string
@@ -93,6 +97,16 @@ func (r *Registry) Track(hook interface{}, obj client.Object) (retErr error) {
 	tracker = addToAnnotation(tracker, hookName)
 	annotations[HookTrackerAnnotationKey] = tracker
 	obj.SetAnnotations(annotations)
+
+	// Add finalizer if the hook requires one. Only for BeforeClusterDelete.
+	if hasFinalizer(hook) {
+		finalizers := obj.GetFinalizers()
+		if finalizers == nil {
+			finalizers = []string{}
+		}
+		finalizers = append(finalizers, hookName)
+		obj.SetFinalizers(finalizers)
+	}
 	return nil
 }
 
@@ -127,6 +141,20 @@ func (r *Registry) Done(hook interface{}, obj client.Object) (retErr error) {
 	tracker = removeFromAnnotation(tracker, hookName)
 	annotations[HookTrackerAnnotationKey] = tracker
 	obj.SetAnnotations(annotations)
+
+	// Remove finalizer if the hook requires one. Only for BeforeClusterDelete.
+	if hasFinalizer(hook) {
+		finalizers := obj.GetFinalizers()
+		if finalizers == nil {
+			finalizers = []string{}
+		}
+		for i, finalizer := range finalizers {
+			if finalizer == reflect.TypeOf(hook).Name() {
+				finalizers = append(finalizers[:i], finalizers[i+1:]...)
+			}
+		}
+		obj.SetFinalizers(finalizers)
+	}
 	return nil
 }
 
@@ -144,6 +172,31 @@ var AfterClusterUpgradeExtension = &Extension{
 	Name: "AfterClusterUpgradeExtension",
 	Results: []*Result{
 		{0, nil}, // Success
+	},
+}
+
+var BeforeClusterCreateExtension = &Extension{
+	Name: "BeforeClusterCreateExtension",
+	Results: []*Result{
+		{30, nil}, // Success - retry after 30 sec
+		{30, nil}, // Success - retry after 30 s
+		{0, nil},  // Success
+	},
+}
+
+var AfterFirstControlPlaneReadyExtension = &Extension{
+	Name: "AfterFirstControlPlaneReadyExtension",
+	Results: []*Result{
+		{0, nil}, // Success
+	},
+}
+
+var BeforeClusterDeleteExtension = &Extension{
+	Name: "BeforeClusterDeleteExtension",
+	Results: []*Result{
+		{30, nil}, // Success - retry after 30 sec
+		{30, nil}, // Success - retry after 30 s
+		{0, nil},  // Success
 	},
 }
 
@@ -206,4 +259,11 @@ func init() {
 	}
 	registry.Register(BeforeClusterUpgradeHook{}, BeforeClusterUpgradeExtension)
 	registry.Register(AfterClusterUpgradeHook{}, AfterClusterUpgradeExtension)
+	registry.Register(BeforeClusterCreateHook{}, BeforeClusterCreateExtension)
+	registry.Register(AfterFirstControlPlaneReadyHook{}, AfterFirstControlPlaneReadyExtension)
+	registry.Register(BeforeClusterDeleteHook{}, BeforeClusterDeleteExtension)
+}
+
+func hasFinalizer(hook interface{}) bool {
+	return reflect.TypeOf(hook) == reflect.TypeOf(BeforeClusterDeleteExtension)
 }
