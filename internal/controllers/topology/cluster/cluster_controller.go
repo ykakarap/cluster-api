@@ -147,17 +147,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Re
 		log.Info("Reconciliation is paused for this object")
 		return ctrl.Result{}, nil
 	}
-	// Register and Call AfterFirstControlPlaneReadyHook and Call BeforeClusterCreateHook
-	if cluster.Spec.InfrastructureRef == nil {
-		res, err := registry.Call(BeforeClusterCreateHook{}, cluster)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if res.RetryAfterSeconds != 0 {
-			retryAfter, _ := time.ParseDuration(strconv.Itoa(res.RetryAfterSeconds))
-			return ctrl.Result{RequeueAfter: retryAfter}, nil
-		}
-	}
+
 	// In case the object is deleted, the managed topology stops to reconcile;
 	// (the other controllers will take care of deletion).
 	if !cluster.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -210,6 +200,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Re
 func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result, error) {
 	var err error
 
+	// Register and Call AfterFirstControlPlaneReadyHook and Call BeforeClusterCreateHook
+	if s.Current.Cluster.Spec.InfrastructureRef == nil {
+		res, err := registry.Call(BeforeClusterCreateHook{}, s.Current.Cluster)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if res.RetryAfterSeconds != 0 {
+			retryAfter, _ := time.ParseDuration(strconv.Itoa(res.RetryAfterSeconds))
+			return ctrl.Result{RequeueAfter: retryAfter}, nil
+		}
+	}
+
 	// Gets the blueprint with the ClusterClass and the referenced templates
 	// and store it in the request scope.
 	s.Blueprint, err = r.getBlueprint(ctx, s.Current.Cluster)
@@ -237,6 +239,12 @@ func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result
 	// Reconciles current and desired state of the Cluster
 	if err := r.reconcileState(ctx, s); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "error reconciling the Cluster topology")
+	}
+
+	// Compute the effect result of the hooks.
+	hooksResult := s.HookResultsTracker.Result()
+	if hooksResult.RetryAfterSeconds > 0 {
+		return ctrl.Result{RequeueAfter: time.Duration(hooksResult.RetryAfterSeconds * int(time.Second))}, nil
 	}
 
 	return ctrl.Result{}, nil

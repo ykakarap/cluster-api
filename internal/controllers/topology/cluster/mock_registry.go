@@ -2,11 +2,11 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -25,6 +25,7 @@ type Result struct {
 
 // Hooks
 type BeforeClusterUpgradeHook struct{}
+type AfterControlPlaneUpgradeHook struct{}
 type AfterClusterUpgradeHook struct{}
 type BeforeClusterCreateHook struct{}
 type BeforeClusterDeleteHook struct{}
@@ -70,7 +71,8 @@ func (r *Registry) Call(hook interface{}, obj client.Object) (*Result, error) {
 		}, nil
 	}
 	res := extension.Handle()
-	fmt.Printf("Runtime Extension %q returned result %+v\n", extension.Name, res)
+	// fmt.Printf("Runtime Extension %q returned result %+v\n", extension.Name, res)
+	klog.Infof("Runtime Extension %q returned result %+v\n", extension.Name, res)
 	if res.Error == nil && res.RetryAfterSeconds == 0 {
 		// If the hook is called successfully then we can drop it form the tracker
 		r.Done(hook, obj)
@@ -168,6 +170,13 @@ var BeforeClusterUpgradeExtension = &Extension{
 	},
 }
 
+var AfterControlPlaneUpgradeExtension = &Extension{
+	Name: "AfterControlPlaneUpgradeExtension",
+	Results: []*Result{
+		{0, nil}, // Success
+	},
+}
+
 var AfterClusterUpgradeExtension = &Extension{
 	Name: "AfterClusterUpgradeExtension",
 	Results: []*Result{
@@ -258,6 +267,7 @@ func init() {
 		hooksMap: map[reflect.Type]*Extension{},
 	}
 	registry.Register(BeforeClusterUpgradeHook{}, BeforeClusterUpgradeExtension)
+	registry.Register(AfterControlPlaneUpgradeHook{}, AfterControlPlaneUpgradeExtension)
 	registry.Register(AfterClusterUpgradeHook{}, AfterClusterUpgradeExtension)
 	registry.Register(BeforeClusterCreateHook{}, BeforeClusterCreateExtension)
 	registry.Register(AfterFirstControlPlaneReadyHook{}, AfterFirstControlPlaneReadyExtension)

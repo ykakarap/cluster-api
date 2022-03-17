@@ -318,10 +318,17 @@ func computeControlPlaneVersion(s *scope.Scope) (string, error) {
 	if res.RetryAfterSeconds != 0 {
 		// don't pickup the new version yet.
 		// TODO: how to recheck some time without blocking the entire reconcile operation?
+		s.HookResultsTracker.Add(&scope.HookResult{
+			RetryAfterSeconds: res.RetryAfterSeconds,
+			Error:             res.Error, // TODO: we don't really care about this in this POC.
+		})
 		return *currentVersion, nil
 	}
+	if err := registry.Track(AfterControlPlaneUpgradeHook{}, s.Current.Cluster); err != nil {
+		return "", errors.Wrap(err, "failed to track control plane upgrade operation in registry")
+	}
 	if err := registry.Track(AfterClusterUpgradeHook{}, s.Current.Cluster); err != nil {
-		return "", errors.Wrap(err, "failed to track upgrade operation in registry")
+		return "", errors.Wrap(err, "failed to track cluster upgrade operation in registry")
 	}
 	return desiredVersion, nil
 }

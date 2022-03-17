@@ -97,6 +97,32 @@ func (r *Reconciler) reconcileAfterHooks(ctx context.Context, s *scope.Scope) er
 		}
 	}
 	// check if the upgrade operation was being tracked
+	// if the operation is being tracked then check if the control is fully upgraded
+	if registry.Tracked(AfterControlPlaneUpgradeHook{}, s.Current.Cluster) {
+		cpIsUpgrading, err := contract.ControlPlane().IsUpgrading(s.Current.ControlPlane.Object)
+		if err != nil {
+			return nil
+		}
+		cpIsScaling := false
+		if s.Blueprint.Topology.ControlPlane.Replicas != nil {
+			cpIsScaling, err = contract.ControlPlane().IsScaling(s.Current.ControlPlane.Object)
+			if err != nil {
+				return err
+			}
+		}
+		if !s.UpgradeTracker.ControlPlane.PendingUpgrade &&
+			!cpIsUpgrading &&
+			!cpIsScaling {
+			// At this point the control plane is stable at the version specific in the topology spec.
+			// Call the AfterControlPlaneUpgradeHook. Since the hook was expected to be called (control plane
+			// reached stable state after an upgrade) the extensions associated with the hook will be called.
+			_, err := registry.Call(AfterControlPlaneUpgradeHook{}, s.Current.Cluster)
+			if err != nil {
+				return errors.Wrapf(err, "failed to call %T hook", AfterControlPlaneUpgradeHook{})
+			}
+		}
+	}
+	// check if the upgrade operation was being tracked
 	// if the operation is being tracked then check if the cluster is fully upgraded
 	if registry.Tracked(AfterClusterUpgradeHook{}, s.Current.Cluster) {
 		cpIsUpgrading, err := contract.ControlPlane().IsUpgrading(s.Current.ControlPlane.Object)
