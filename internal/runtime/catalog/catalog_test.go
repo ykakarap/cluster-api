@@ -10,120 +10,90 @@ import (
 )
 
 const (
-	group   = "test.cluster.x-k8s.io"
+	group   = "fake.cluster.x-k8s.io"
 	version = "v1alpha1"
 )
 
-type svc struct{}
+func TestCatalog(t *testing.T) {
+	g := NewWithT(t)
 
-type input struct {
+	// Create catalog and add the FakeHook.
+	c := New()
+	g.Expect(AddToCatalog(c)).To(Succeed())
+
+	// Test GroupVersionHook
+	hookGVH, err := c.GroupVersionHook(FakeHook)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(hookGVH.Group).To(Equal(group))
+	g.Expect(hookGVH.Version).To(Equal(version))
+	g.Expect(hookGVH.Hook).To(Equal("FakeHook"))
+
+	// Test Request
+	requestGVK, err := c.Request(hookGVH)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(requestGVK.Group).To(Equal(group))
+	g.Expect(requestGVK.Version).To(Equal(version))
+	g.Expect(requestGVK.Kind).To(Equal("FakeRequest"))
+
+	// Test Response
+	responseGVK, err := c.Response(hookGVH)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(responseGVK.Group).To(Equal(group))
+	g.Expect(responseGVK.Version).To(Equal(version))
+	g.Expect(responseGVK.Kind).To(Equal("FakeResponse"))
+
+	// Test NewRequest
+	request, err := c.NewRequest(hookGVH)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Test NewResponse
+	response, err := c.NewResponse(hookGVH)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Test ValidateRequest/ValidateResponse
+	g.Expect(c.ValidateRequest(hookGVH, request)).To(Succeed())
+	g.Expect(c.ValidateResponse(hookGVH, response)).To(Succeed())
+
+	// FIXME: different version
+}
+
+var (
+	FakeGroupVersion = schema.GroupVersion{Group: group, Version: version}
+
+	catalogBuilder = Builder{GroupVersion: FakeGroupVersion}
+
+	AddToCatalog = catalogBuilder.AddToCatalog
+)
+
+func FakeHook(*FakeRequest, *FakeResponse) {}
+
+type FakeRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
 	Second string
 	First  int
 }
 
-func (in *input) DeepCopyObject() runtime.Object {
+func (in *FakeRequest) DeepCopyObject() runtime.Object {
 	panic("implement me!")
 }
 
-type output struct {
+type FakeResponse struct {
 	metav1.TypeMeta `json:",inline"`
 
 	Second string
 	First  int
 }
 
-func (in *output) DeepCopyObject() runtime.Object {
+func (in *FakeResponse) DeepCopyObject() runtime.Object {
 	panic("implement me!")
 }
 
-func TestCatalog_addTypeToScheme(t *testing.T) {
-	tests := []struct {
-		name string
-		gv   schema.GroupVersion
-		obj  runtime.Object
-		want GroupVersionKind
-	}{
-		{
-			name: "",
-			gv:   schema.GroupVersion{Group: group, Version: version},
-			obj:  &input{},
-			want: GroupVersionKind{Group: group, Version: version, Kind: "request"},
-		},
-		// TODO: test no pointer, no struct, no version, no group
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			c := New()
-			got := c.addTypeToScheme(tt.gv, tt.obj)
-
-			g.Expect(got).To(Equal(tt.want))
-		})
-	}
-}
-
-func TestCatalog_ObjectKind(t *testing.T) {
-	tests := []struct {
-		name string
-		gv   GroupVersion
-		obj  runtime.Object
-		want GroupVersionKind
-	}{
-		{
-			name: "",
-			gv:   GroupVersion{Group: group, Version: version},
-			obj:  &input{},
-			want: GroupVersionKind{Group: group, Version: version, Kind: "Input"},
-		},
-		// TODO: test multiple gvk
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			c := New()
-			c.scheme.AddKnownTypes(tt.gv.toScheme(), tt.obj)
-
-			got, err := c.ObjectKind(tt.obj)
-			g.Expect(err).ToNot(HaveOccurred())
-
-			g.Expect(got).To(Equal(tt.want))
-		})
-	}
-}
-
-func TestCatalog_RegisterService(t *testing.T) {
-	tests := []struct {
-		name   string
-		gv    GroupVersion
-		svc   Hook
-		input runtime.Object
-		output runtime.Object
-	}{
-		{
-			name:   "",
-			gv:     GroupVersion{Group: group, Version: version},
-			svc:    &svc{},
-			input:  &input{},
-			output: &output{},
-		},
-		// TODO: test no pointer, no struct, double registration, wrong request/response
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// g := NewWithT(t)
-
-			c := New()
-
-			c.RegisterHook(tt.gv, tt.svc, tt.input, tt.output)
-
-			// TODO: assertions
-		})
-	}
+func init() {
+	catalogBuilder.RegisterHook(FakeHook, &HookMeta{
+		Tags:        []string{"fake-tag"},
+		Summary:     "Fake summary",
+		Description: "Fake description",
+		Deprecated:  true,
+	})
 }

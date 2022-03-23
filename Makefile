@@ -323,6 +323,26 @@ generate-go-conversions-kubeadm-control-plane: $(CONVERSION_GEN) ## Generate con
 		--output-file-base=zz_generated.conversion $(CONVERSION_GEN_OUTPUT_BASE) \
 		--go-header-file=./hack/boilerplate/boilerplate.generatego.txt
 
+.PHONY: generate-go-conversions-openapi
+generate-go-conversions-openapi: $(CONVERSION_GEN)
+	$(MAKE) clean-generated-conversions SRC_DIRS="./exp/runtime/hooks/api/v1alpha1,./exp/runtime/hooks/api/v1alpha2,./exp/runtime/hooks/api/v1alpha3"
+	$(CONVERSION_GEN) \
+		--input-dirs=./exp/runtime/hooks/api/v1alpha1 \
+		--input-dirs=./exp/runtime/hooks/api/v1alpha2 \
+		--input-dirs=./exp/runtime/hooks/api/v1alpha3 \
+		--output-file-base=zz_generated.conversion $(CONVERSION_GEN_OUTPUT_BASE) \
+		--go-header-file=./hack/boilerplate/boilerplate.generatego.txt
+
+.PHONY: generate-go-openapi
+generate-go-openapi: $(OPENAPI_GEN) $(CONTROLLER_GEN)
+	$(MAKE) clean-generated-openapi_definitions SRC_DIRS="./exp/runtime/hooks/api/v1alpha1,./exp/runtime/hooks/api/v1alpha2,./exp/runtime/hooks/api/v1alpha3"
+	$(OPENAPI_GEN) \
+		--input-dirs=./exp/runtime/hooks/api/v1alpha1 \
+		--input-dirs=./exp/runtime/hooks/api/v1alpha2 \
+		--input-dirs=./exp/runtime/hooks/api/v1alpha3 \
+		--output-file-base=zz_generated.openapi \
+		--header-file=./hack/boilerplate/boilerplate.generatego.txt
+
 .PHONY: generate-modules
 generate-modules: ## Run go mod tidy to ensure modules are up to date
 	go mod tidy

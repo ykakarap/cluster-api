@@ -10,7 +10,7 @@ import (
 
 	runtimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 	"sigs.k8s.io/cluster-api/exp/runtime/controllers"
-	v1alpha32 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	rtclient "sigs.k8s.io/cluster-api/internal/runtime/client"
 	"sigs.k8s.io/cluster-api/internal/runtime/registry"
@@ -21,7 +21,7 @@ import (
 var c = catalog.New()
 
 func init() {
-	v1alpha32.AddToCatalog(c)
+	_ = v1alpha1.AddToCatalog(c)
 }
 
 func main() {
@@ -46,19 +46,18 @@ func main() {
 
 	ext := &runtimev1.Extension{}
 
-	runtimeExtensions, err := runtimeClient.Extension(ext)
+	runtimeExtensions, err := runtimeClient.Extension(ext).Discover()
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(runtimeExtensions)
 
-	hook := &v1alpha32.Hook1{}
-	in := &v1alpha32.Hook1Request{First: 1, Second: "Hello CAPI runtime extensions!"}
-	out := &v1alpha32.Hook1Response{}
+	in := &v1alpha1.DiscoveryHookRequest{First: 1, Second: "Hello CAPI runtime extensions!"}
+	out := &v1alpha1.DiscoveryHookResponse{}
 
-	runtimeClient.Hook(hook).Call(ctx, "http-proxy.patch", in, out)
+	runtimeClient.Hook(v1alpha1.DiscoveryHook).Call(ctx, "http-proxy.patch", in, out)
 
-	runtimeClient.Hook(hook).CallAll(ctx, in, out)
+	runtimeClient.Hook(v1alpha1.DiscoveryHook).CallAll(ctx, in, out)
 
 	//runtimeClient = http.NewClientBuilder().
 	//	WithCatalog(c).

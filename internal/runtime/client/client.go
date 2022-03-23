@@ -27,13 +27,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	runtimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
-	catalog2 "sigs.k8s.io/cluster-api/internal/runtime/catalog"
+	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 )
 
 // Options are creation options for a Client.
 type Options struct {
-	Catalog  *catalog2.Catalog
+	Catalog  *catalog.Catalog
 	Registry registry.Registry
 }
 
@@ -50,13 +50,13 @@ const (
 
 type Client interface {
 	Extension(ext *runtimev1.Extension) ExtensionClient
-	Hook(service catalog2.Hook) HookClient
+	Hook(service catalog.Hook) HookClient
 
-	ServiceOld(service catalog2.Hook, opts ...ServiceOption) ServiceClient
+	ServiceOld(service catalog.Hook, opts ...ServiceOption) ServiceClient
 }
 
 type client struct {
-	catalog  *catalog2.Catalog
+	catalog  *catalog.Catalog
 	registry registry.Registry
 
 	host     string
@@ -92,7 +92,7 @@ type HookClient interface {
 	CallAll(ctx context.Context, in, out runtime.Object) error
 }
 
-func (c *client) Hook(hook catalog2.Hook) HookClient {
+func (c *client) Hook(hook catalog.Hook) HookClient {
 	return &hookClient{
 		client: c,
 		hook:   hook,
@@ -101,12 +101,12 @@ func (c *client) Hook(hook catalog2.Hook) HookClient {
 
 type hookClient struct {
 	client *client
-	hook   catalog2.Hook
+	hook   catalog.Hook
 	opts   []ServiceOption
 }
 
 func (h hookClient) Call(ctx context.Context, name string, in, out runtime.Object) error {
-	gvh, err := h.client.catalog.HookKind(h.hook)
+	gvh, err := h.client.catalog.GroupVersionHook(h.hook)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (h hookClient) Call(ctx context.Context, name string, in, out runtime.Objec
 }
 
 func (h hookClient) CallAll(ctx context.Context, in, out runtime.Object) error {
-	gvh, err := h.client.catalog.HookKind(h.hook)
+	gvh, err := h.client.catalog.GroupVersionHook(h.hook)
 	if err != nil {
 		return err
 	}
@@ -167,13 +167,13 @@ type ServiceClient interface {
 
 type serviceClient struct {
 	client *client
-	svc    catalog2.Hook
+	svc    catalog.Hook
 	opts   []ServiceOption
 }
 
 var _ ServiceClient = &serviceClient{}
 
-func (c *client) ServiceOld(svc catalog2.Hook, opts ...ServiceOption) ServiceClient {
+func (c *client) ServiceOld(svc catalog.Hook, opts ...ServiceOption) ServiceClient {
 	return &serviceClient{
 		client: c,
 		svc:    svc,
@@ -187,7 +187,7 @@ func (s *serviceClient) Invoke(ctx context.Context, in, out runtime.Object) erro
 		o.ApplyToServiceOptions(serviceOpts)
 	}
 
-	gvh, err := s.client.catalog.HookKind(s.svc)
+	gvh, err := s.client.catalog.GroupVersionHook(s.svc)
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func (s *serviceClient) Invoke(ctx context.Context, in, out runtime.Object) erro
 		gvh.Version = serviceOpts.Version
 		// TODO: validate gvh exists
 
-		inLocal, err = s.client.catalog.NewInput(gvh)
+		inLocal, err = s.client.catalog.NewRequest(gvh)
 		if err != nil {
 			return err
 		}
@@ -209,17 +209,17 @@ func (s *serviceClient) Invoke(ctx context.Context, in, out runtime.Object) erro
 			return err
 		}
 
-		outLocal, err = s.client.catalog.NewOutput(gvh)
+		outLocal, err = s.client.catalog.NewResponse(gvh)
 		if err != nil {
 			return err
 		}
 	}
 
-	if _, err := s.client.catalog.RequestKind(gvh, catalog2.ValidateObject{Obj: inLocal}); err != nil {
+	if err := s.client.catalog.ValidateRequest(gvh, inLocal); err != nil {
 		return err
 	}
 
-	if _, err := s.client.catalog.ResponseKind(gvh, catalog2.ValidateObject{Obj: outLocal}); err != nil {
+	if err := s.client.catalog.ValidateResponse(gvh, outLocal); err != nil {
 		return err
 	}
 
@@ -230,7 +230,7 @@ func (s *serviceClient) Invoke(ctx context.Context, in, out runtime.Object) erro
 	}
 
 	// TODO: https + refactor how we are computing the url
-	url := fmt.Sprintf("%s%s", s.client.host, path.Join(s.client.basePath, GVSToPath(gvh)))
+	url := fmt.Sprintf("%s%s", s.client.host, path.Join(s.client.basePath, catalog.GVHToPath(gvh)))
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody))
 	if err != nil {
 		// TODO: wrap err

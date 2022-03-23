@@ -258,12 +258,12 @@ run:
   - e2e
   skip-files:
   - "zz_generated.*\\.go$"
+  - internal/runtime/catalog/catalog_openapi.go
   skip-dirs:
   - third_party
   - exp/runtime/controllers
   - exp/runtime/hooks
   - exp/runtime/internal
-  - internal/runtime/catalog
   - internal/runtime/client
   - internal/runtime/registry
   - internal/runtime/server

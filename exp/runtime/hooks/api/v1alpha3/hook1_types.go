@@ -16,7 +16,11 @@ limitations under the License.
 
 package v1alpha3
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
+)
 
 // Hook1Request foo bar baz.
 // +k8s:openapi-gen=true
@@ -24,8 +28,8 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 type Hook1Request struct {
 	metav1.TypeMeta `json:",inline"`
 
-	Second string
-	First  int
+	Second string `json:"second"`
+	First  int    `json:"first"`
 }
 
 // Hook1Response foo bar baz.
@@ -34,14 +38,16 @@ type Hook1Request struct {
 type Hook1Response struct {
 	metav1.TypeMeta `json:",inline"`
 
-	Message string
+	Message string `json:"message"`
 }
 
-// Hook1 foo bar baz.
-// +k8s:conversion-gen=false
-type Hook1 struct{}
+func Hook1(*DiscoveryHookRequest, *DiscoveryHookResponse) {}
 
 func init() {
-	// Register rpc services defined in this package and their request and response types.
-	catalogBuilder.RegisterHook(&Hook1{}, &Hook1Request{}, &Hook1Response{})
+	catalogBuilder.RegisterHook(Hook1, &catalog.HookMeta{
+		Tags:        []string{"discovery"},
+		Summary:     "Discovery endpoint",
+		Description: "Discovery endpoint discovers...",
+		Deprecated:  true,
+	})
 }

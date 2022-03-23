@@ -25,28 +25,28 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 
-	catalog2 "sigs.k8s.io/cluster-api/internal/runtime/catalog"
+	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
 
 type F interface{}
 
 type HandlerBuilder struct {
-	catalog *catalog2.Catalog
-	svcToF  map[catalog2.Hook]F
+	catalog *catalog.Catalog
+	svcToF  map[catalog.Hook]F
 }
 
 func NewHandlerBuilder() *HandlerBuilder {
 	return &HandlerBuilder{
-		svcToF: map[catalog2.Hook]F{},
+		svcToF: map[catalog.Hook]F{},
 	}
 }
 
-func (bld *HandlerBuilder) WithCatalog(c *catalog2.Catalog) *HandlerBuilder {
+func (bld *HandlerBuilder) WithCatalog(c *catalog.Catalog) *HandlerBuilder {
 	bld.catalog = c
 	return bld
 }
 
-func (bld *HandlerBuilder) AddService(svc catalog2.Hook, f F) *HandlerBuilder {
+func (bld *HandlerBuilder) AddService(svc catalog.Hook, f F) *HandlerBuilder {
 	bld.svcToF[svc] = f
 	return bld
 }
@@ -60,17 +60,17 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 
 	for svc, f := range bld.svcToF {
 
-		gvs, err := bld.catalog.HookKind(svc)
+		gvs, err := bld.catalog.GroupVersionHook(svc)
 		if err != nil {
 			return nil, err
 		}
 
-		in, err := bld.catalog.NewInput(gvs)
+		in, err := bld.catalog.NewRequest(gvs)
 		if err != nil {
 			return nil, err
 		}
 
-		out, err := bld.catalog.NewOutput(gvs)
+		out, err := bld.catalog.NewResponse(gvs)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +87,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 				// TODO: handle error
 			}
 
-			in, err := bld.catalog.NewInput(gvs)
+			in, err := bld.catalog.NewRequest(gvs)
 			if err != nil {
 				// TODO: handle error
 			}
@@ -96,7 +96,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 				// TODO: handle error
 			}
 
-			out, err := bld.catalog.NewOutput(gvs)
+			out, err := bld.catalog.NewResponse(gvs)
 			if err != nil {
 				// TODO: handle error
 			}
@@ -123,7 +123,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 			w.Write(respBody)
 		}
 
-		r.HandleFunc(GVSToPath(gvs), fWrapper).Methods("POST")
+		r.HandleFunc(catalog.GVHToPath(gvs), fWrapper).Methods("POST")
 	}
 
 	return r, nil
