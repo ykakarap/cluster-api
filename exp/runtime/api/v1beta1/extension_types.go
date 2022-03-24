@@ -20,11 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/exp/api/v1beta1"
-)
-
-const (
-	ExtensionFinalizer = "cluster.cluster.x-k8s.io"
 )
 
 // ANCHOR: ExtensionSpec
@@ -41,7 +36,7 @@ type ExtensionSpec struct {
 }
 
 // WebhookClientConfig contains the information to make a TLS
-// connection with the webhook
+// connection with the webhook.
 type WebhookClientConfig struct {
 	// `url` gives the location of the webhook, in standard URL form
 	// (`scheme://host:port/path`). Exactly one of `url` or `service`
@@ -86,11 +81,12 @@ type WebhookClientConfig struct {
 	CABundle []byte `json:"caBundle,omitempty" protobuf:"bytes,2,opt,name=caBundle"`
 }
 
-// ServiceReference holds a reference to Service.legacy.k8s.io
+// ServiceReference holds a reference to a Kubernetes Service.
 type ServiceReference struct {
 	// `namespace` is the namespace of the service.
 	// Required
 	Namespace string `json:"namespace" protobuf:"bytes,1,opt,name=namespace"`
+
 	// `name` is the name of the service.
 	// Required
 	Name string `json:"name" protobuf:"bytes,2,opt,name=name"`
@@ -115,13 +111,12 @@ type ServiceReference struct {
 type ExtensionStatus struct {
 	RuntimeExtensions []RuntimeExtension `json:"runtimeExtensions,omitempty"`
 
-	Discovered bool
-
 	// Conditions define the current service state of the MachinePool.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }
 
+// RuntimeExtension specifies the details of a particular runtime extension registered by an Extension.
 type RuntimeExtension struct {
 	Name           string             `json:"name"`
 	Hook           Hook               `json:"hook"`
@@ -129,6 +124,7 @@ type RuntimeExtension struct {
 	FailurePolicy  *FailurePolicyType `json:"failurePolicy,omitempty"`
 }
 
+// Hook defines the runtime event when the runtime extensions is called.
 type Hook struct {
 	APIVersion string `json:"apiVersion"`
 	Name       string `json:"name"`
@@ -147,16 +143,10 @@ const (
 // ANCHOR_END: ExtensionStatus
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:path=Extensions,shortName=mp,scope=Namespaced,categories=cluster-api
+// +kubebuilder:resource:path=extensions,shortName=ext,scope=Namespaced,categories=cluster-api
 // +kubebuilder:subresource:status
-// +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas
 // +kubebuilder:storageversion
-// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.clusterName",description="Cluster"
-// +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=".spec.replicas",description="Total number of machines desired by this Extension",priority=10
-// +kubebuilder:printcolumn:name="Replicas",type="string",JSONPath=".status.replicas",description="Extension replicas count"
-// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Extension status such as Terminating/Pending/Provisioning/Running/Failed etc"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of Extension"
-// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.template.spec.version",description="Kubernetes version associated with this Extension"
 // +k8s:conversion-gen=false
 
 // Extension is the Schema for the Extensions API.
@@ -169,13 +159,13 @@ type Extension struct {
 }
 
 // GetConditions returns the set of conditions for this object.
-func (m *Extension) GetConditions() clusterv1.Conditions {
-	return m.Status.Conditions
+func (e *Extension) GetConditions() clusterv1.Conditions {
+	return e.Status.Conditions
 }
 
 // SetConditions sets the conditions on this object.
-func (m *Extension) SetConditions(conditions clusterv1.Conditions) {
-	m.Status.Conditions = conditions
+func (e *Extension) SetConditions(conditions clusterv1.Conditions) {
+	e.Status.Conditions = conditions
 }
 
 // +kubebuilder:object:root=true
@@ -188,5 +178,5 @@ type ExtensionList struct {
 }
 
 func init() {
-	v1beta1.SchemeBuilder.Register(&Extension{}, &ExtensionList{})
+	SchemeBuilder.Register(&Extension{}, &ExtensionList{})
 }

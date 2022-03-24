@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package v1beta1 contains API Schema definitions for the exp v1beta1 API group
 // +kubebuilder:object:generate=true
-// +groupName=cluster.x-k8s.io
+// +groupName=runtime.cluster.x-k8s.io
 package v1beta1
 
 import (

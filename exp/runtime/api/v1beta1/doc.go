@@ -14,4 +14,5 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package v1beta1 contains the v1beta1 implementation of Extensions.
 package v1beta1

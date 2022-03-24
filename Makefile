@@ -200,6 +200,7 @@ generate-manifests-core: $(CONTROLLER_GEN) $(KUSTOMIZE) ## Generate manifests e.
 		paths=./$(EXP_DIR)/internal/controllers/... \
 		paths=./$(EXP_DIR)/addons/api/... \
 		paths=./$(EXP_DIR)/addons/internal/controllers/... \
+		paths=./$(EXP_DIR)/runtime/api/... \
 		crd:crdVersions=v1 \
 		rbac:roleName=manager-role \
 		output:crd:dir=./config/crd/bases \
@@ -321,29 +322,6 @@ generate-go-conversions-kubeadm-control-plane: $(CONVERSION_GEN) ## Generate con
 		--extra-peer-dirs=sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4 \
 		--output-file-base=zz_generated.conversion $(CONVERSION_GEN_OUTPUT_BASE) \
 		--go-header-file=./hack/boilerplate/boilerplate.generatego.txt
-
-.PHONY: generate-go-conversions-openapi
-generate-go-conversions-openapi: $(CONVERSION_GEN)
-	$(MAKE) clean-generated-conversions SRC_DIRS="./rte/idl"
-	$(CONVERSION_GEN) \
-		--input-dirs=./rte/idl/extension1/v1alpha1 \
-		--input-dirs=./rte/idl/extension1/v1alpha2 \
-		--input-dirs=./rte/idl/extension1/v1alpha3 \
-		--output-file-base=zz_generated.conversion $(CONVERSION_GEN_OUTPUT_BASE) \
-		--go-header-file=./hack/boilerplate/boilerplate.generatego.txt
-	
-.PHONY: generate-go-openapi
-generate-go-openapi: $(OPENAPI_GEN) $(CONTROLLER_GEN)
-	$(MAKE) clean-generated-openapi_definitions SRC_DIRS="./rte/idl"
-	$(OPENAPI_GEN) \
-		--input-dirs=./rte/idl/extension1/v1alpha1 \
-		--input-dirs=./rte/idl/extension1/v1alpha2 \
-		--input-dirs=./rte/idl/extension1/v1alpha3 \
-		--output-file-base=zz_generated.openapi \
-		--header-file=./hack/boilerplate/boilerplate.generatego.txt
-	$(CONTROLLER_GEN) \
-		object:headerFile=./hack/boilerplate/boilerplate.generatego.txt \
-		paths=./rte/idl/...
 
 .PHONY: generate-modules
 generate-modules: ## Run go mod tidy to ensure modules are up to date

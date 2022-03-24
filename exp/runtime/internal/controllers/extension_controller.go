@@ -21,14 +21,12 @@ import (
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 	expv1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
 	"sigs.k8s.io/cluster-api/internal/runtime/registry"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 )
 
 // +kubebuilder:rbac:groups=runtime.cluster.x-k8s.io,resources=extension,verbs=get;list;watch;create;update;patch;delete
@@ -69,14 +67,6 @@ func (r *ExtensionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// FIXME add defer patch helper..
-
-	// Add finalizer first if not exist to avoid the race condition between init and delete
-	if !controllerutil.ContainsFinalizer(ext, expv1.ExtensionFinalizer) {
-		controllerutil.AddFinalizer(ext, expv1.ExtensionFinalizer)
-		return ctrl.Result{}, nil
-	}
-
 	// Handle deletion reconciliation loop.
 	if !ext.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, ext)
@@ -97,19 +87,6 @@ func (r *ExtensionReconciler) reconcile(ctx context.Context, ext *expv1.Extensio
 	// * should call Discover on RuntimeExtension and then update Status
 	// Note: Has to work with ext.Spec.ClientConfig without underlying registry
 	// Q: Is it enough to do the Discovery only once initially or on each reconcile
-
-	if ext.Status.Discovered {
-		r.Registry.RegisterRuntimeExtension(ext)
-		return ctrl.Result{}, nil
-	}
-
-	runtimeExtensions, err := r.RuntimeClient.Extension(ext).Discover()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	ext.Status.Discovered = true
-	ext.Status.RuntimeExtensions = runtimeExtensions
 
 	r.Registry.RegisterRuntimeExtension(ext)
 

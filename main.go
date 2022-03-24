@@ -55,7 +55,7 @@ import (
 	expv1alpha4 "sigs.k8s.io/cluster-api/exp/api/v1alpha4"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	expcontrollers "sigs.k8s.io/cluster-api/exp/controllers"
-	runtimecontrollers "sigs.k8s.io/cluster-api/exp/runtime/controllers"
+	expruntimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 	hooksv1alpha1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	hooksv1alpha2 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha2"
 	hooksv1alpha3 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
@@ -108,6 +108,8 @@ func init() {
 	_ = expv1alpha3.AddToScheme(scheme)
 	_ = expv1alpha4.AddToScheme(scheme)
 	_ = expv1.AddToScheme(scheme)
+
+	_ = expruntimev1.AddToScheme(scheme)
 
 	_ = addonsv1alpha3.AddToScheme(scheme)
 	_ = addonsv1alpha4.AddToScheme(scheme)
@@ -310,15 +312,6 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		Registry: registry,
 	})
 
-	if err := (&runtimecontrollers.ExtensionReconciler{
-		Client:        mgr.GetClient(),
-		RuntimeClient: runtimeClient,
-		Registry:      registry,
-	}).SetupWithManager(ctx, mgr, concurrency(1)); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Extension")
-		os.Exit(1)
-	}
-
 	if feature.Gates.Enabled(feature.ClusterTopology) {
 		unstructuredCachingClient, err := client.NewDelegatingClient(
 			client.NewDelegatingClientInput{
@@ -459,6 +452,13 @@ func setupWebhooks(mgr ctrl.Manager) {
 	// is going to prevent usage of Cluster.Topology in case the feature flag is disabled.
 	if err := (&webhooks.Cluster{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Cluster")
+		os.Exit(1)
+	}
+
+	// NOTE: Extensions are behind the RuntimeSDK feature gate flag; the webhook will prevent creation or updates of
+	// Extension objects if the flag is disabled.
+	if err := (&expruntimev1.Extension{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Extension")
 		os.Exit(1)
 	}
 
