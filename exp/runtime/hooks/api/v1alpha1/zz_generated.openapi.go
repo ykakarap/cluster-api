@@ -28,16 +28,20 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookRequest":  schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookResponse": schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterUpgradeHookRequest":         schema_runtime_hooks_api_v1alpha1_AfterUpgradeHookRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterUpgradeHookRequest": schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeHookRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BlockingRuntimeHookResponse":     schema_runtime_hooks_api_v1alpha1_BlockingRuntimeHookResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput":                    schema_runtime_hooks_api_v1alpha1_ClusterInput(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterLifecycleHookRequest":     schema_runtime_hooks_api_v1alpha1_ClusterLifecycleHookRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.NonBlockingRuntimeResponse":      schema_runtime_hooks_api_v1alpha1_NonBlockingRuntimeResponse(ref),
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_AfterUpgradeHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "DiscoveryHookRequest foo bar baz.",
+				Description: "AfterUpgradeHookRequest foo bar.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -54,32 +58,33 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref common.Reference
 							Format:      "",
 						},
 					},
-					"second": {
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"),
+						},
+					},
+					"version": {
 						SchemaProps: spec.SchemaProps{
 							Default: "",
 							Type:    []string{"string"},
 							Format:  "",
 						},
 					},
-					"first": {
-						SchemaProps: spec.SchemaProps{
-							Default: 0,
-							Type:    []string{"integer"},
-							Format:  "int32",
-						},
-					},
 				},
-				Required: []string{"second", "first"},
+				Required: []string{"cluster", "version"},
 			},
 		},
+		Dependencies: []string{
+			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"},
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "DiscoveryHookResponse foo bar baz.",
+				Description: "BeforeClusterUpgradeHookRequest foo bar.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -94,6 +99,70 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref common.Referenc
 							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
 							Type:        []string{"string"},
 							Format:      "",
+						},
+					},
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"),
+						},
+					},
+					"fromVersion": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"toVersion": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+				},
+				Required: []string{"cluster", "fromVersion", "toVersion"},
+			},
+		},
+		Dependencies: []string{
+			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_BlockingRuntimeHookResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BlockingRuntimeHookResponse foo bar.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"retryAfterSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Default: 0,
+							Type:    []string{"integer"},
+							Format:  "int32",
 						},
 					},
 					"message": {
@@ -104,7 +173,95 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref common.Referenc
 						},
 					},
 				},
-				Required: []string{"message"},
+				Required: []string{"status", "retryAfterSeconds", "message"},
+			},
+		},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_ClusterInput(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+			},
+		},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_ClusterLifecycleHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ClusterLifecycleHookRequest foo bar.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"),
+						},
+					},
+				},
+				Required: []string{"cluster"},
+			},
+		},
+		Dependencies: []string{
+			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_NonBlockingRuntimeResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "NonBlockingRuntimeHookResponse foo bar.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+				},
+				Required: []string{"status", "message"},
 			},
 		},
 	}

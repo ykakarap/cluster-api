@@ -18,12 +18,10 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
 
 // DiscoveryHookRequest foo bar baz.
-// +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 type DiscoveryHookRequest struct {
 	metav1.TypeMeta `json:",inline"`
@@ -33,7 +31,6 @@ type DiscoveryHookRequest struct {
 }
 
 // DiscoveryHookResponse foo bar baz.
-// +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 type DiscoveryHookResponse struct {
 	metav1.TypeMeta `json:",inline"`
