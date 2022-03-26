@@ -27,92 +27,163 @@ type ResponseStatus string
 
 const (
 	ResponseSuccess ResponseStatus = "success"
-	ResponseError   ResponseStatus = "error"
+	ResponseError   ResponseStatus = "failure"
 )
 
-// BlockingRuntimeHookResponse foo bar.
+// BlockingResponse is the response of a blocking lifecycle hook.
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-type BlockingRuntimeHookResponse struct {
+type BlockingResponse struct {
 	metav1.TypeMeta `json:",inline"`
 
-	Status            ResponseStatus `json:"status"`
-	RetryAfterSeconds int            `json:"retryAfterSeconds"`
-	Message           string         `json:"message"`
+	// Status of the call. One of "Success" or "Failure".
+	Status ResponseStatus `json:"status"`
+
+	// RetryAfterSeconds when set to a non-zero signifies that the hook
+	// needs to be retried at a future time.
+	RetryAfterSeconds int `json:"retryAfterSeconds"`
+
+	// A human-readable description of the status of the call.
+	Message string `json:"message"`
 }
 
-func (b *BlockingRuntimeHookResponse) DeepCopyObject() runtime.Object {
+func (b *BlockingResponse) DeepCopyObject() runtime.Object {
 	return b
 }
 
-// NonBlockingRuntimeHookResponse foo bar.
+// NonBlockingRuntimeHookResponse is the response of a non-blocking lifecycle hook.
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-type NonBlockingRuntimeResponse struct {
+type NonBlockingResponse struct {
 	metav1.TypeMeta `json:",inline"`
 
-	Status  ResponseStatus `json:"status"`
-	Message string         `json:"message"`
+	// Status of the call. One of "Success" or "Failure".
+	Status ResponseStatus `json:"status"`
+
+	// A human-readable description of the status of the call.
+	Message string `json:"message"`
 }
 
-func (n *NonBlockingRuntimeResponse) DeepCopyObject() runtime.Object {
+func (n *NonBlockingResponse) DeepCopyObject() runtime.Object {
 	return n
 }
 
-// +k8s:openapi-gen=true
-type ClusterInput struct {
-	Cluster runtime.RawExtension `json:",inline"`
-}
+// BeforeClusterCreate Hook
 
-// ClusterLifecycleHookRequest foo bar.
+// BeforeClusterCreateRequest is the request of the hook.
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-type ClusterLifecycleHookRequest struct {
+type BeforeClusterCreateRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	Cluster ClusterInput `json:"cluster"`
+	// The cluster object the lifecycle hook corresponds to.
+	Cluster runtime.RawExtension `json:"cluster"`
 }
 
-func (c *ClusterLifecycleHookRequest) DeepCopyObject() runtime.Object {
+func (c *BeforeClusterCreateRequest) DeepCopyObject() runtime.Object {
 	return c
 }
 
-func BeforeClusterCreate(*ClusterLifecycleHookRequest, *BlockingRuntimeHookResponse) {}
+func BeforeClusterCreate(*BeforeClusterCreateRequest, *BlockingResponse) {}
 
-func AfterControlPlaneInitialized(*ClusterLifecycleHookRequest, *NonBlockingRuntimeResponse) {}
+// AfterControlPlaneInitialized Hook
 
-// BeforeClusterUpgradeHookRequest foo bar.
+// AfterControlPlaneInitializedRequest is the request of the hook.
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-type BeforeClusterUpgradeHookRequest struct {
-	ClusterLifecycleHookRequest `json:",inline"`
-	FromVersion                 string `json:"fromVersion"`
-	ToVersion                   string `json:"toVersion"`
+type AfterControlPlaneInitializedRequest struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// The cluster object the lifecycle hook corresponds to.
+	Cluster runtime.RawExtension `json:"cluster"`
 }
 
-func (b *BeforeClusterUpgradeHookRequest) DeepCopyObject() runtime.Object {
+func (c *AfterControlPlaneInitializedRequest) DeepCopyObject() runtime.Object {
+	return c
+}
+
+func AfterControlPlaneInitialized(*AfterControlPlaneInitializedRequest, *NonBlockingResponse) {}
+
+// BeforeClusterUpgrade Hook.
+
+// BeforeClusterUpgradeRequest is the request of the hook.
+// +k8s:openapi-gen=true
+// +kubebuilder:object:root=true
+type BeforeClusterUpgradeRequest struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// The cluster object the lifecycle hook corresponds to.
+	Cluster runtime.RawExtension `json:"cluster"`
+
+	// The current version of the cluster.
+	FromKubernetesVersion string `json:"fromKubernetesVersion"`
+	// The target version of upgrade.
+	ToKubernetesVersion string `json:"toKubernetesVersion"`
+}
+
+func (b *BeforeClusterUpgradeRequest) DeepCopyObject() runtime.Object {
 	return b
 }
 
-// AfterUpgradeHookRequest foo bar.
+func BeforeClusterUpgradeHook(*BeforeClusterUpgradeRequest, *BlockingResponse) {}
+
+// AfterControlPlaneUpgrade Hook.
+
+// AfterControlPlaneUpgradeRequest is the request of the hook.
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-type AfterUpgradeHookRequest struct {
-	ClusterLifecycleHookRequest `json:",inline"`
-	Version                     string `json:"version"`
+type AfterControlPlaneUpgradeRequest struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// The cluster object the lifecycle hook corresponds to.
+	Cluster runtime.RawExtension `json:"cluster"`
+
+	// The version after upgrade.
+	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
-func (a *AfterUpgradeHookRequest) DeepCopyObject() runtime.Object {
+func (a *AfterControlPlaneUpgradeRequest) DeepCopyObject() runtime.Object {
 	return a
 }
 
-func BeforeClusterUpgradeHook(*BeforeClusterUpgradeHookRequest, *BlockingRuntimeHookResponse) {}
+func AfterControlPlaneUpgradeHook(*AfterControlPlaneUpgradeRequest, *BlockingResponse) {}
 
-func AfterControlPlaneUpgradeHook(*AfterUpgradeHookRequest, *BlockingRuntimeHookResponse) {}
+// AfterClusterUpgrade Hook.
 
-func AfterClusterUpgradeHook(*AfterUpgradeHookRequest, *NonBlockingRuntimeResponse) {}
+// AfterClusterUpgradeRequest is the request of the hook.
+// +k8s:openapi-gen=true
+// +kubebuilder:object:root=true
+type AfterClusterUpgradeRequest struct {
+	metav1.TypeMeta `json:",inline"`
 
-func BeforeClusterDeleteHook(*ClusterLifecycleHookRequest, *BlockingRuntimeHookResponse) {}
+	// The cluster object the lifecycle hook corresponds to.
+	Cluster runtime.RawExtension `json:"cluster"`
+
+	// The version after upgrade.
+	KubernetesVersion string `json:"kubernetesVersion"`
+}
+
+func (a *AfterClusterUpgradeRequest) DeepCopyObject() runtime.Object {
+	return a
+}
+
+func AfterClusterUpgradeHook(*AfterClusterUpgradeRequest, *NonBlockingResponse) {}
+
+// BeforeClusterDeleteRequest is the request of the hook.
+// +k8s:openapi-gen=true
+// +kubebuilder:object:root=true
+type BeforeClusterDeleteRequest struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// The cluster object the lifecycle hook corresponds to.
+	Cluster runtime.RawExtension `json:"cluster"`
+}
+
+func (c *BeforeClusterDeleteRequest) DeepCopyObject() runtime.Object {
+	return c
+}
+
+func BeforeClusterDeleteHook(*BeforeClusterDeleteRequest, *BlockingResponse) {}
 
 func init() {
 	catalogBuilder.RegisterHook(BeforeClusterCreate, &catalog.HookMeta{

@@ -28,20 +28,22 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterUpgradeHookRequest":         schema_runtime_hooks_api_v1alpha1_AfterUpgradeHookRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterUpgradeHookRequest": schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeHookRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BlockingRuntimeHookResponse":     schema_runtime_hooks_api_v1alpha1_BlockingRuntimeHookResponse(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput":                    schema_runtime_hooks_api_v1alpha1_ClusterInput(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterLifecycleHookRequest":     schema_runtime_hooks_api_v1alpha1_ClusterLifecycleHookRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.NonBlockingRuntimeResponse":      schema_runtime_hooks_api_v1alpha1_NonBlockingRuntimeResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterClusterUpgradeRequest":          schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneInitializedRequest": schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneUpgradeRequest":     schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterCreateRequest":          schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterDeleteRequest":          schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterUpgradeRequest":         schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BlockingResponse":                    schema_runtime_hooks_api_v1alpha1_BlockingResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.NonBlockingResponse":                 schema_runtime_hooks_api_v1alpha1_NonBlockingResponse(ref),
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_AfterUpgradeHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "AfterUpgradeHookRequest foo bar.",
+				Description: "AfterClusterUpgradeRequest is the request of the hook.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -60,31 +62,33 @@ func schema_runtime_hooks_api_v1alpha1_AfterUpgradeHookRequest(ref common.Refere
 					},
 					"cluster": {
 						SchemaProps: spec.SchemaProps{
-							Default: map[string]interface{}{},
-							Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"),
+							Description: "The cluster object the lifecycle hook corresponds to.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
 						},
 					},
-					"version": {
+					"kubernetesVersion": {
 						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "The version after upgrade.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 				},
-				Required: []string{"cluster", "version"},
+				Required: []string{"cluster", "kubernetesVersion"},
 			},
 		},
 		Dependencies: []string{
-			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"},
+			"k8s.io/apimachinery/pkg/runtime.RawExtension"},
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "BeforeClusterUpgradeHookRequest foo bar.",
+				Description: "AfterControlPlaneInitializedRequest is the request of the hook.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -103,38 +107,197 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeHookRequest(ref commo
 					},
 					"cluster": {
 						SchemaProps: spec.SchemaProps{
-							Default: map[string]interface{}{},
-							Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"),
-						},
-					},
-					"fromVersion": {
-						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
-						},
-					},
-					"toVersion": {
-						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "The cluster object the lifecycle hook corresponds to.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
 						},
 					},
 				},
-				Required: []string{"cluster", "fromVersion", "toVersion"},
+				Required: []string{"cluster"},
 			},
 		},
 		Dependencies: []string{
-			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"},
+			"k8s.io/apimachinery/pkg/runtime.RawExtension"},
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_BlockingRuntimeHookResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "BlockingRuntimeHookResponse foo bar.",
+				Description: "AfterControlPlaneUpgradeRequest is the request of the hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The cluster object the lifecycle hook corresponds to.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
+						},
+					},
+					"kubernetesVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The version after upgrade.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"cluster", "kubernetesVersion"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/runtime.RawExtension"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BeforeClusterCreateRequest is the request of the hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The cluster object the lifecycle hook corresponds to.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
+						},
+					},
+				},
+				Required: []string{"cluster"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/runtime.RawExtension"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BeforeClusterDeleteRequest is the request of the hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The cluster object the lifecycle hook corresponds to.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
+						},
+					},
+				},
+				Required: []string{"cluster"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/runtime.RawExtension"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BeforeClusterUpgradeRequest is the request of the hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"cluster": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The cluster object the lifecycle hook corresponds to.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
+						},
+					},
+					"fromKubernetesVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The current version of the cluster.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"toKubernetesVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The target version of upgrade.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"cluster", "fromKubernetesVersion", "toKubernetesVersion"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/runtime.RawExtension"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_BlockingResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BlockingResponse is the response of a blocking lifecycle hook.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -153,23 +316,26 @@ func schema_runtime_hooks_api_v1alpha1_BlockingRuntimeHookResponse(ref common.Re
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "Status of the call. One of \"Success\" or \"Failure\".",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"retryAfterSeconds": {
 						SchemaProps: spec.SchemaProps{
-							Default: 0,
-							Type:    []string{"integer"},
-							Format:  "int32",
+							Description: "RetryAfterSeconds when set to a non-zero signifies that the hook needs to be retried at a future time.",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
 						},
 					},
 					"message": {
 						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 				},
@@ -179,57 +345,11 @@ func schema_runtime_hooks_api_v1alpha1_BlockingRuntimeHookResponse(ref common.Re
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_ClusterInput(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_NonBlockingResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Type: []string{"object"},
-			},
-		},
-	}
-}
-
-func schema_runtime_hooks_api_v1alpha1_ClusterLifecycleHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
-	return common.OpenAPIDefinition{
-		Schema: spec.Schema{
-			SchemaProps: spec.SchemaProps{
-				Description: "ClusterLifecycleHookRequest foo bar.",
-				Type:        []string{"object"},
-				Properties: map[string]spec.Schema{
-					"kind": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
-					"apiVersion": {
-						SchemaProps: spec.SchemaProps{
-							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
-					"cluster": {
-						SchemaProps: spec.SchemaProps{
-							Default: map[string]interface{}{},
-							Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"),
-						},
-					},
-				},
-				Required: []string{"cluster"},
-			},
-		},
-		Dependencies: []string{
-			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ClusterInput"},
-	}
-}
-
-func schema_runtime_hooks_api_v1alpha1_NonBlockingRuntimeResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
-	return common.OpenAPIDefinition{
-		Schema: spec.Schema{
-			SchemaProps: spec.SchemaProps{
-				Description: "NonBlockingRuntimeHookResponse foo bar.",
+				Description: "NonBlockingRuntimeHookResponse is the response of a non-blocking lifecycle hook.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -248,16 +368,18 @@ func schema_runtime_hooks_api_v1alpha1_NonBlockingRuntimeResponse(ref common.Ref
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "Status of the call. One of \"Success\" or \"Failure\".",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"message": {
 						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 				},
