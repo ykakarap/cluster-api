@@ -117,9 +117,9 @@ func init() {
 
 	// +kubebuilder:scaffold:scheme
 
-	hooksv1alpha1.AddToCatalog(catalog)
-	hooksv1alpha2.AddToCatalog(catalog)
-	hooksv1alpha3.AddToCatalog(catalog)
+	_ = hooksv1alpha1.AddToCatalog(catalog)
+	_ = hooksv1alpha2.AddToCatalog(catalog)
+	_ = hooksv1alpha3.AddToCatalog(catalog)
 }
 
 // InitFlags initializes the flags.

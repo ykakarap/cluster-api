@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,14 +14,5 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package server
-
-import (
-	"fmt"
-
-	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
-)
-
-func GVSToPath(gvs catalog.GroupVersionHook) string {
-	return fmt.Sprintf("/%s/%s/%s", gvs.Group, gvs.Version, gvs.Hook)
-}
+// Package catalog provides the Catalog and corresponding builders.
+package catalog

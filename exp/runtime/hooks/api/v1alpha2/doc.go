@@ -15,5 +15,5 @@ limitations under the License.
 */
 
 // Package v1alpha2 contains the v1alpha2 idl implementation for extension1.
-// +k8s:conversion-gen=sigs.k8s.io/cluster-api/rte/idl/extension1/v1alpha3
+// +k8s:conversion-gen=sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3
 package v1alpha2

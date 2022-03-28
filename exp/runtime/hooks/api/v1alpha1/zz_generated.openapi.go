@@ -28,12 +28,12 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/cluster-api/rte/idl/extension1/v1alpha1.DiscoveryHookRequest":  schema_rte_idl_extension1_v1alpha1_Operation1Input(ref),
-		"sigs.k8s.io/cluster-api/rte/idl/extension1/v1alpha1.DiscoveryHookResponse": schema_rte_idl_extension1_v1alpha1_Operation1Output(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookRequest":  schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookResponse": schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref),
 	}
 }
 
-func schema_rte_idl_extension1_v1alpha1_Operation1Input(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
@@ -54,14 +54,14 @@ func schema_rte_idl_extension1_v1alpha1_Operation1Input(ref common.ReferenceCall
 							Format:      "",
 						},
 					},
-					"Second": {
+					"second": {
 						SchemaProps: spec.SchemaProps{
 							Default: "",
 							Type:    []string{"string"},
 							Format:  "",
 						},
 					},
-					"First": {
+					"first": {
 						SchemaProps: spec.SchemaProps{
 							Default: 0,
 							Type:    []string{"integer"},
@@ -69,13 +69,13 @@ func schema_rte_idl_extension1_v1alpha1_Operation1Input(ref common.ReferenceCall
 						},
 					},
 				},
-				Required: []string{"Second", "First"},
+				Required: []string{"second", "first"},
 			},
 		},
 	}
 }
 
-func schema_rte_idl_extension1_v1alpha1_Operation1Output(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
@@ -96,7 +96,7 @@ func schema_rte_idl_extension1_v1alpha1_Operation1Output(ref common.ReferenceCal
 							Format:      "",
 						},
 					},
-					"Message": {
+					"message": {
 						SchemaProps: spec.SchemaProps{
 							Default: "",
 							Type:    []string{"string"},
@@ -104,7 +104,7 @@ func schema_rte_idl_extension1_v1alpha1_Operation1Output(ref common.ReferenceCal
 						},
 					},
 				},
-				Required: []string{"Message"},
+				Required: []string{"message"},
 			},
 		},
 	}

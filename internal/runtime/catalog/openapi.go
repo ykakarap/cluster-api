@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,42 +14,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package openapi
+package catalog
 
 import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"strings"
 
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/kube-openapi/pkg/spec3"
 	validation "k8s.io/kube-openapi/pkg/validation/spec"
-
-	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
-	"sigs.k8s.io/cluster-api/internal/runtime/server"
 )
 
-type Spec interface {
-	OpenAPI() (*spec3.OpenAPI, error)
-}
-
-type spec struct {
-	catalog *catalog.Catalog
-}
-
-var _ Spec = &spec{}
-
-func (s *spec) OpenAPI() (*spec3.OpenAPI, error) {
+func (c *Catalog) OpenAPI() (*spec3.OpenAPI, error) {
 	// TODO: Refactor
 	// TODO: Validate output
+	// Choose grouping by: object, "category" (lifecycle vs mutation), apiGroup
 
 	o := &spec3.OpenAPI{ // TODO: this is missing tags :-(
 		Version: "3.0.0",
 		Info: &validation.Info{
 			InfoProps: validation.InfoProps{
-				Description: "Open API spec for Cluster API Runtime Extensions",
-				Title:       "Cluster API Runtime Extensions",
+				Description: "Open API spec for Cluster API Runtime SDK",
+				Title:       "Cluster API Runtime SDK",
 				License: &validation.License{
 					Name: "Apache 2.0",
 					URL:  "http://www.apache.org/licenses/LICENSE-2.0.html",
@@ -65,8 +53,9 @@ func (s *spec) OpenAPI() (*spec3.OpenAPI, error) {
 		},
 	}
 
-	for _, gvs := range s.catalog.AllKnownHooks() {
-		path := server.GVSToPath(gvs)
+	for gvh, hookDescriptor := range c.gvhToHookDescriptor {
+		path := GVHToPath(gvh) // TODO: place holder for name
+
 		pathItem := &spec3.Path{
 			PathProps: spec3.PathProps{
 				Parameters: make([]*spec3.Parameter, 0),
@@ -75,21 +64,21 @@ func (s *spec) OpenAPI() (*spec3.OpenAPI, error) {
 
 		op := &spec3.Operation{
 			OperationProps: spec3.OperationProps{
-				Tags:        []string{strings.Split(gvs.Group, ".")[0]}, // TODO: improve this; spec3.OpenAPI is missing specs...
-				Summary:     "summary",                                  // TODO: add to catalog/RegisterHook.
-				Description: "description",                              // TODO: add to catalog/RegisterHook.
-				OperationId: "",                                         // TODO: generate from gvs
+				Tags:        hookDescriptor.metadata.Tags,
+				Summary:     hookDescriptor.metadata.Summary,
+				Description: hookDescriptor.metadata.Description,
+				OperationId: "", // TODO: generate from gvh
 				Parameters:  nil,
 				Responses: &spec3.Responses{
 					ResponsesProps: spec3.ResponsesProps{
 						StatusCodeResponses: make(map[int]*spec3.Response),
 					},
 				},
-				Deprecated: false, // TODO: add to catalog/RegisterHook.
+				Deprecated: hookDescriptor.metadata.Deprecated,
 			},
 		}
 
-		inputGvk, err := s.catalog.RequestKind(gvs)
+		inputGvk, err := c.Request(gvh)
 		if err != nil {
 			panic("implement me!") // TODO: handle error
 		}
@@ -111,7 +100,7 @@ func (s *spec) OpenAPI() (*spec3.OpenAPI, error) {
 			},
 		}
 
-		outputGvk, err := s.catalog.ResponseKind(gvs)
+		outputGvk, err := c.Response(gvh)
 		if err != nil {
 			panic("implement me!") // TODO: handle error
 		}
@@ -141,28 +130,25 @@ func (s *spec) OpenAPI() (*spec3.OpenAPI, error) {
 		o.Paths.Paths[path] = pathItem
 	}
 
-	types := s.catalog.AllKnownParameters()
-	for gvk := range types {
-		s.buildComponentsRecursively(gvk, types, o.Components)
+	for gvk, t := range c.scheme.AllKnownTypes() {
+		err := c.buildComponentsRecursively(gvk, t, o.Components)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return o, nil
 }
 
-func (s *spec) buildComponentsRecursively(gvk schema.GroupVersionKind, types map[schema.GroupVersionKind]reflect.Type, components *spec3.Components) error {
+func (c *Catalog) buildComponentsRecursively(gvk schema.GroupVersionKind, t reflect.Type, components *spec3.Components) error {
 	name := componentName(gvk)
 	if _, ok := components.Schemas[name]; ok {
 		return nil
 	}
 
-	t, ok := types[gvk]
+	getter, ok := c.gvToOpenAPIDefinitions[gvk.GroupVersion()]
 	if !ok {
-		panic("implement me!") // TODO: handle error
-	}
-
-	getter, err := s.catalog.GetOpenAPIDefinitionsGetter(gvk.GroupVersion())
-	if err != nil {
-		return err
+		return errors.Errorf("failed to get OpenAPIDefinitions for GroupVersion %q", gvk.GroupVersion())
 	}
 
 	getterWithRef := getter(func(name string) validation.Ref {
