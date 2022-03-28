@@ -60,17 +60,17 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 
 	for svc, f := range bld.svcToF {
 
-		gvs, err := bld.catalog.GroupVersionHook(svc)
+		gvh, err := bld.catalog.GroupVersionHook(svc)
 		if err != nil {
 			return nil, err
 		}
 
-		in, err := bld.catalog.NewRequest(gvs)
+		in, err := bld.catalog.NewRequest(gvh)
 		if err != nil {
 			return nil, err
 		}
 
-		out, err := bld.catalog.NewResponse(gvs)
+		out, err := bld.catalog.NewResponse(gvh)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +87,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 				// TODO: handle error
 			}
 
-			in, err := bld.catalog.NewRequest(gvs)
+			in, err := bld.catalog.NewRequest(gvh)
 			if err != nil {
 				// TODO: handle error
 			}
@@ -96,7 +96,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 				// TODO: handle error
 			}
 
-			out, err := bld.catalog.NewResponse(gvs)
+			out, err := bld.catalog.NewResponse(gvh)
 			if err != nil {
 				// TODO: handle error
 			}
@@ -123,7 +123,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 			w.Write(respBody)
 		}
 
-		r.HandleFunc(catalog.GVHToPath(gvs), fWrapper).Methods("POST")
+		r.HandleFunc(catalog.GVHToPath(gvh, "TODO: name"), fWrapper).Methods("POST")
 	}
 
 	return r, nil

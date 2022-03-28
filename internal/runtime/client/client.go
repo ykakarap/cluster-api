@@ -227,7 +227,7 @@ func (s *serviceClient) Invoke(ctx context.Context, in, out runtime.Object) erro
 	}
 
 	// TODO: https + refactor how we are computing the url
-	url := fmt.Sprintf("%s%s", s.client.host, path.Join(s.client.basePath, catalog.GVHToPath(gvh)))
+	url := fmt.Sprintf("%s%s", s.client.host, path.Join(s.client.basePath, catalog.GVHToPath(gvh, "TODO: name")))
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody))
 	if err != nil {
 		// TODO: wrap err

@@ -16,4 +16,6 @@ limitations under the License.
 
 // Package v1alpha2 contains the v1alpha2 idl implementation for extension1.
 // +k8s:conversion-gen=sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3
+// +kubebuilder:object:generate=true
+// +k8s:openapi-gen=true
 package v1alpha2

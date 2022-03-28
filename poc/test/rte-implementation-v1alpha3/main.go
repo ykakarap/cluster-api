@@ -33,7 +33,7 @@ func main() {
 
 	operation1Handler, err := catalogHTTP.NewHandlerBuilder().
 		WithCatalog(c).
-		AddService(&v1alpha32.DiscoveryHook{}, doOperation1). // TODO: this is not strongly typed, but there are type checks when the service starts
+		AddService(v1alpha32.Discovery, doOperation1). // TODO: this is not strongly typed, but there are type checks when the service starts
 		// TODO: test with more services
 		Build()
 	if err != nil {
@@ -60,7 +60,7 @@ func main() {
 }
 
 func doOperation1(in *v1alpha32.DiscoveryHookRequest, out *v1alpha32.DiscoveryHookResponse) error {
-	fmt.Println("DiscoveryHook/v1alpha3 called")
-	out.Message = fmt.Sprintf("DiscoveryHook implementation version v1alpha3 - first: %d, second: %s", in.First, in.Second)
+	fmt.Println("Discovery/v1alpha3 called")
+	out.Message = fmt.Sprintf("Discovery implementation version v1alpha3 - first: %d, second: %s", in.First, in.Second)
 	return nil
 }

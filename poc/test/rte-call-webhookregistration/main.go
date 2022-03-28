@@ -57,10 +57,9 @@ func main() {
 			Host(r.host).
 			Build()
 
-		svc := &v1alpha32.DiscoveryHook{}
 		in := &v1alpha32.DiscoveryHookRequest{First: 1, Second: "Hello CAPI runtime extensions!"}
 		out := &v1alpha32.DiscoveryHookResponse{}
-		if err := client.ServiceOld(svc, http.SpecVersion(r.version)).Invoke(ctx, in, out); err != nil {
+		if err := client.ServiceOld(v1alpha32.Discovery, http.SpecVersion(r.version)).Invoke(ctx, in, out); err != nil {
 			panic(err)
 		}
 

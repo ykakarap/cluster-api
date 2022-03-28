@@ -20,172 +20,228 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/kube-openapi/pkg/common"
 	"k8s.io/kube-openapi/pkg/spec3"
-	validation "k8s.io/kube-openapi/pkg/validation/spec"
+	"k8s.io/kube-openapi/pkg/validation/spec"
 )
 
-func (c *Catalog) OpenAPI() (*spec3.OpenAPI, error) {
-	// TODO: Refactor
-	// TODO: Validate output
-	// Choose grouping by: object, "category" (lifecycle vs mutation), apiGroup
-
-	o := &spec3.OpenAPI{ // TODO: this is missing tags :-(
+func (c *Catalog) OpenAPI(version string) (*spec3.OpenAPI, error) {
+	openAPI := &spec3.OpenAPI{
 		Version: "3.0.0",
-		Info: &validation.Info{
-			InfoProps: validation.InfoProps{
-				Description: "Open API spec for Cluster API Runtime SDK",
-				Title:       "Cluster API Runtime SDK",
-				License: &validation.License{
+		Info: &spec.Info{
+			InfoProps: spec.InfoProps{
+				Description: "Open API specification for Cluster API Runtime SDK",
+				Title:       "Cluster API - Runtime SDK",
+				License: &spec.License{
 					Name: "Apache 2.0",
 					URL:  "http://www.apache.org/licenses/LICENSE-2.0.html",
 				},
-				Version: "v1.0.1", // TODO: CAPI version
+				Version: version,
 			},
 		},
 		Paths: &spec3.Paths{
 			Paths: map[string]*spec3.Path{},
 		},
 		Components: &spec3.Components{
-			Schemas: map[string]*validation.Schema{},
+			Schemas: map[string]*spec.Schema{},
 		},
 	}
 
 	for gvh, hookDescriptor := range c.gvhToHookDescriptor {
-		path := GVHToPath(gvh) // TODO: place holder for name
-
-		pathItem := &spec3.Path{
-			PathProps: spec3.PathProps{
-				Parameters: make([]*spec3.Parameter, 0),
-			},
-		}
-
-		op := &spec3.Operation{
-			OperationProps: spec3.OperationProps{
-				Tags:        hookDescriptor.metadata.Tags,
-				Summary:     hookDescriptor.metadata.Summary,
-				Description: hookDescriptor.metadata.Description,
-				OperationId: "", // TODO: generate from gvh
-				Parameters:  nil,
-				Responses: &spec3.Responses{
-					ResponsesProps: spec3.ResponsesProps{
-						StatusCodeResponses: make(map[int]*spec3.Response),
-					},
-				},
-				Deprecated: hookDescriptor.metadata.Deprecated,
-			},
-		}
-
-		inputGvk, err := c.Request(gvh)
-		if err != nil {
-			panic("implement me!") // TODO: handle error
-		}
-
-		op.RequestBody = &spec3.RequestBody{
-			RequestBodyProps: spec3.RequestBodyProps{
-				// TODO: this seems repeated (same thing in response)
-				Content: map[string]*spec3.MediaType{
-					"application/json": {
-						MediaTypeProps: spec3.MediaTypeProps{
-							Schema: &validation.Schema{
-								SchemaProps: validation.SchemaProps{
-									Ref: componentRef(inputGvk),
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		outputGvk, err := c.Response(gvh)
-		if err != nil {
-			panic("implement me!") // TODO: handle error
-		}
-
-		op.Responses.StatusCodeResponses[http.StatusOK] = &spec3.Response{
-			ResponseProps: spec3.ResponseProps{
-				Description: "OK",
-				// TODO: this seems repeated (same thing in requestBody)
-				Content: map[string]*spec3.MediaType{
-					"application/json": {
-						MediaTypeProps: spec3.MediaTypeProps{
-							Schema: &validation.Schema{
-								SchemaProps: validation.SchemaProps{
-									Ref: componentRef(outputGvk),
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		// TODO: other response codes?
-
-		pathItem.Post = op
-
-		o.Paths.Paths[path] = pathItem
-	}
-
-	for gvk, t := range c.scheme.AllKnownTypes() {
-		err := c.buildComponentsRecursively(gvk, t, o.Components)
+		err := addHookAndTypesToOpenAPI(openAPI, c, gvh, hookDescriptor)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return o, nil
+	return openAPI, nil
 }
 
-func (c *Catalog) buildComponentsRecursively(gvk schema.GroupVersionKind, t reflect.Type, components *spec3.Components) error {
-	name := componentName(gvk)
-	if _, ok := components.Schemas[name]; ok {
-		return nil
+func addHookAndTypesToOpenAPI(openAPI *spec3.OpenAPI, c *Catalog, gvh GroupVersionHook, hookDescriptor hookDescriptor) error {
+	// Create the operation.
+	operation := &spec3.Operation{
+		OperationProps: spec3.OperationProps{
+			Tags:        hookDescriptor.metadata.Tags,
+			Summary:     hookDescriptor.metadata.Summary,
+			Description: hookDescriptor.metadata.Description,
+			OperationId: operationID(gvh),
+			Responses: &spec3.Responses{
+				ResponsesProps: spec3.ResponsesProps{
+					StatusCodeResponses: make(map[int]*spec3.Response),
+				},
+			},
+			Deprecated: hookDescriptor.metadata.Deprecated,
+		},
+	}
+	path := GVHToPath(gvh, "")
+
+	// Add name parameter to operation path if necessary.
+	// TODO(openapi): TBD if we want to add the name parameter.
+	// I think it's useful as that reflects the real path which Runtime Extensions will handle.
+	// Follow-up: potentially drop Singleton field.
+	if !hookDescriptor.metadata.Singleton {
+		path = GVHToPath(gvh, "{name}")
+		operation.Parameters = append(operation.Parameters, &spec3.Parameter{
+			ParameterProps: spec3.ParameterProps{
+				Name:     "name",
+				In:       "path",
+				Required: true,
+				Schema: &spec.Schema{
+					SchemaProps: spec.SchemaProps{
+						Type: []string{"string"},
+					},
+				},
+			},
+		})
 	}
 
-	getter, ok := c.gvToOpenAPIDefinitions[gvk.GroupVersion()]
+	// Add request type to operation.
+	requestGVK, err := c.Request(gvh)
+	if err != nil {
+		return err
+	}
+	requestType, ok := c.scheme.AllKnownTypes()[requestGVK]
 	if !ok {
-		return errors.Errorf("failed to get OpenAPIDefinitions for GroupVersion %q", gvk.GroupVersion())
+		return errors.New("TODO 4")
+	}
+	requestTypeName := typeName(requestType, requestGVK)
+	operation.RequestBody = &spec3.RequestBody{
+		RequestBodyProps: spec3.RequestBodyProps{
+			Content: createContent(requestTypeName),
+		},
+	}
+	if err := addTypeToOpenAPI(openAPI, c, requestTypeName); err != nil {
+		return err
 	}
 
-	getterWithRef := getter(func(name string) validation.Ref {
-		return validation.MustCreateRef("#/components/schemas/" + name)
-	})
+	// Add response type to operation.
+	responseGVK, err := c.Response(gvh)
+	if err != nil {
+		return err
+	}
+	responseType := c.scheme.AllKnownTypes()[responseGVK]
+	if !ok {
+		return errors.New("TODO 5")
+	}
+	responseTypeName := typeName(responseType, responseGVK)
+	operation.Responses.StatusCodeResponses[http.StatusOK] = &spec3.Response{
+		// TODO(openapi): TBD do we want to handle other response codes?
+		// Not sure if we should introduce them when we don't need them.
+		ResponseProps: spec3.ResponseProps{
+			Description: "OK",
+			Content:     createContent(responseTypeName),
+		},
+	}
+	if err := addTypeToOpenAPI(openAPI, c, responseTypeName); err != nil {
+		return err
+	}
 
-	pkgPath := t.PkgPath()
-
-	getterName := fmt.Sprintf("%s.%s", pkgPath, gvk.Kind)
-
-	if item, ok := getterWithRef[getterName]; ok {
-		schema := &validation.Schema{
-			VendorExtensible:   item.Schema.VendorExtensible,
-			SchemaProps:        item.Schema.SchemaProps,
-			SwaggerSchemaProps: item.Schema.SwaggerSchemaProps,
-		}
-
-		components.Schemas[name] = schema
-
-		// TODO: investigate recursion (nested schema)
-		/*
-			for _, v := range item.Dependencies {
-				if err := s.buildComponentsRecursively(gvk, components); err != nil {
-					return err
-				}
-			}
-		*/
-	} else {
-		return fmt.Errorf("cannot find model definition for %v. If you added a new type, you may need to add +k8s:openapi-gen=true to the package or type and run code-gen again", name)
+	// Add operation to openAPI.
+	openAPI.Paths.Paths[path] = &spec3.Path{
+		PathProps: spec3.PathProps{
+			Post: operation,
+		},
 	}
 	return nil
 }
 
-func componentRef(gvk schema.GroupVersionKind) validation.Ref {
-	return validation.MustCreateRef(fmt.Sprintf("#/components/schemas/%s", componentName(gvk)))
+func createContent(typeName string) map[string]*spec3.MediaType {
+	return map[string]*spec3.MediaType{
+		"application/json": {
+			MediaTypeProps: spec3.MediaTypeProps{
+				Schema: &spec.Schema{
+					SchemaProps: spec.SchemaProps{
+						Ref: componentRef(typeName),
+					},
+				},
+			},
+		},
+	}
 }
 
-func componentName(gvk schema.GroupVersionKind) string {
-	return fmt.Sprintf("%s.%s.%s", gvk.Kind, gvk.Version, gvk.Group)
+func addTypeToOpenAPI(openAPI *spec3.OpenAPI, c *Catalog, typeName string) error {
+	componentName := componentName(typeName)
+
+	// Check if schema already has been added.
+	if _, ok := openAPI.Components.Schemas[componentName]; ok {
+		return nil
+	}
+
+	// Loop through all OpenAPIDefinitions, so we don't have to lookup typeName => package
+	// (which we couldn't do for external packages like clusterv1 because we cannot map typeName
+	// to a package without hard-coding the mapping).
+	var openAPIDefinition *common.OpenAPIDefinition
+	for _, openAPIDefinitionsGetter := range c.gvToOpenAPIDefinitions {
+		openAPIDefinitions := openAPIDefinitionsGetter(func(refTypeName string) spec.Ref {
+			return componentRef(refTypeName)
+		})
+
+		if def, ok := openAPIDefinitions[typeName]; ok {
+			openAPIDefinition = &def
+			break
+		}
+	}
+
+	if openAPIDefinition == nil {
+		return fmt.Errorf("failed to get definition for %v. If you added a new type, you may need to add +k8s:openapi-gen=true to the package or type and run code-gen again", typeName)
+	}
+
+	// Add schema for component to components.
+	openAPI.Components.Schemas[componentName] = &spec.Schema{
+		VendorExtensible:   openAPIDefinition.Schema.VendorExtensible,
+		SchemaProps:        openAPIDefinition.Schema.SchemaProps,
+		SwaggerSchemaProps: openAPIDefinition.Schema.SwaggerSchemaProps,
+	}
+
+	// Add schema for dependencies to components recursively.
+	for _, d := range openAPIDefinition.Dependencies {
+		if err := addTypeToOpenAPI(openAPI, c, d); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// typeName calculates a type name. This matches the format used in the generated
+// GetOpenAPIDefinitions funcs, e.g. "k8s.io/api/core/v1.ObjectReference"
+func typeName(t reflect.Type, gvk schema.GroupVersionKind) string {
+	return fmt.Sprintf("%s.%s", t.PkgPath(), gvk.Kind)
+}
+
+// componentRef calculates a componentRef which is used in the OpenAPI specification
+// to reference components in the components section.
+func componentRef(typeName string) spec.Ref {
+	return spec.MustCreateRef(fmt.Sprintf("#/components/schemas/%s", componentName(typeName)))
+}
+
+// componentName calculates the componentName for the OpenAPI specification based on a typeName.
+// For example: "k8s.io/api/core/v1.ObjectReference" => "k8s.io.api.core.v1.ObjectReference".
+// Note: This is necessary because we cannot use additional Slashes in the componentRef.
+func componentName(typeName string) string {
+	return strings.ReplaceAll(typeName, "/", ".")
+}
+
+// operationID calculates an operationID similar to Kubernetes OpenAPI.
+// Kubernetes examples:
+// * readRbacAuthorizationV1NamespacedRole
+// * listExtensionsV1beta1IngressForAllNamespaces
+// In our case:
+// * hooksRuntimeClusterV1alpha1Discovery.
+func operationID(gvh GroupVersionHook) string {
+	shortAPIGroup := strings.TrimSuffix(gvh.Group, ".x-k8s.io")
+
+	split := strings.Split(shortAPIGroup, ".")
+
+	res := split[0]
+	for i := 1; i < len(split); i++ {
+		res += strings.Title(split[i])
+	}
+	res += strings.Title(gvh.Version) + strings.Title(gvh.Hook)
+
+	return res
 }

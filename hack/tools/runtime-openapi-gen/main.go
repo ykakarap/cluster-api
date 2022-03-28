@@ -1,52 +1,79 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
+	"path"
 
+	flag "github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha2"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
 
-// TODO: use klogs.
-// TODO: output flags for json/yaml and path.
-
-var c = catalog.New()
-
-func init() {
-	// TODO: how to make this dynamic (automatically discover all the extensions or use input paths)
-	_ = v1alpha1.AddToCatalog(c)
-	//_ = v1alpha2.AddToCatalog(c)
-	//_ = v1alpha3.AddToCatalog(c)
-}
+var (
+	version    = flag.String("version", "", "Version for the OpenAPI specification.")
+	inputDirs  = flag.StringSlice("input-dirs", nil, "Comma-separated list of import paths to get hook definitions from.")
+	outputFile = flag.String("output-file", "runtime-sdk-openapi.yaml", "Output file name.")
+)
 
 func main() {
-	openAPI, err := c.OpenAPI()
-	if err != nil {
-		panic(fmt.Sprintf("OpenAPI error: %v", err))
-	}
+	flag.Parse()
 
-	openAPIBytes, err := yaml.Marshal(openAPI)
-	if err != nil {
-		panic(fmt.Sprintf("MarshalIndent error: %v", err))
+	if *version == "" {
+		klog.Exit("--version must be specified")
 	}
-
-	err = os.WriteFile("openapi.yaml", openAPIBytes, 0600)
-	if err != nil {
-		panic(fmt.Sprintf("WriteFile error: %v", err))
-	}
-
-	// Marshal the swagger spec into JSON, then write it out.
-	//openAPIBytes, err := json.MarshalIndent(openAPI, " ", " ")
-	//if err != nil {
-	//	panic(fmt.Sprintf("MarshalIndent error: %v", err))
+	// TODO(openapi): implement input dir to avoid having to hard-code packages.
+	//if len(*inputDirs) < 1 {
+	//	klog.Exit("--input-dirs must be specified")
 	//}
-	//
+	if *outputFile == "" {
+		klog.Exit("--output-file must be specified")
+	}
 
-	//err = os.WriteFile("openapi.json", openAPIBytes, 0600)
-	//if err != nil {
-	//	panic(fmt.Sprintf("WriteFile error: %v", err))
-	//}
+	outputFileExt := path.Ext(*outputFile)
+	if outputFileExt != ".yaml" && outputFileExt != ".json" {
+		klog.Exit("--output-file must have either 'yaml' or 'json' extension")
+	}
+
+	c := catalog.New()
+	_ = v1alpha1.AddToCatalog(c)
+	_ = v1alpha2.AddToCatalog(c)
+	_ = v1alpha3.AddToCatalog(c)
+
+	// TODO(openapi): TBD if we want to support types from "external" packages which only have GetOpenAPIDefinitions.
+	// If yes, we should add an additional flag for those.
+	// Follow-up: If we don't want to support it drop openapi generation in api/v1beta1.
+	c.AddOpenAPIDefinitions(clusterv1.GroupVersion, clusterv1.GetOpenAPIDefinitions)
+
+	// TODO(openapi): TBD if we want to support types from Kubernetes
+	// Note: We don't have to make this flexible via flag.
+	// We would just vendor the types into vendored_openapi.go that we want to support.
+	c.AddOpenAPIDefinitions(schema.GroupVersion{}, GetOpenAPIDefinitions)
+
+	openAPI, err := c.OpenAPI(*version)
+	if err != nil {
+		klog.Exitf("Failed to generate OpenAPI specification: %v", err)
+	}
+
+	var openAPIBytes []byte
+	if outputFileExt == ".yaml" {
+		openAPIBytes, err = yaml.Marshal(openAPI)
+	} else {
+		openAPIBytes, err = json.MarshalIndent(openAPI, " ", " ")
+	}
+	if err != nil {
+		klog.Exitf("Failed to marshal OpenAPI specification: %v", err)
+	}
+
+	err = os.WriteFile(*outputFile, openAPIBytes, 0600)
+	if err != nil {
+		klog.Exitf("Failed to write OpenAPI specification to file %q: %v", outputFile, err)
+	}
 }

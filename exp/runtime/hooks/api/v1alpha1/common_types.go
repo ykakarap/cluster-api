@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,8 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains the v1alpha1 idl implementation for extension1.
-// +k8s:conversion-gen=sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3
-// +kubebuilder:object:generate=true
-// +k8s:openapi-gen=true
 package v1alpha1
+
+// ResponseStatus represents the status of the hook response.
+// +enum
+type ResponseStatus string
+
+const (
+	ResponseStatusSuccess ResponseStatus = "Success"
+
+	ResponseStatusFailure ResponseStatus = "Failure"
+)

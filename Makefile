@@ -122,6 +122,9 @@ CONVERSION_VERIFIER := $(abspath $(TOOLS_BIN_DIR)/$(CONVERSION_VERIFIER_BIN))
 OPENAPI_GEN_BIN := openapi-gen
 OPENAPI_GEN := $(abspath $(TOOLS_BIN_DIR)/$(OPENAPI_GEN_BIN))
 
+RUNTIME_OPENAPI_GEN_BIN := runtime-openapi-gen
+RUNTIME_OPENAPI_GEN := $(abspath $(TOOLS_BIN_DIR)/$(RUNTIME_OPENAPI_GEN_BIN))
+
 TILT_PREPARE_BIN := tilt-prepare
 TILT_PREPARE := $(abspath $(TOOLS_BIN_DIR)/$(TILT_PREPARE_BIN))
 
@@ -616,7 +619,7 @@ manifest-modification: # Set the manifest images to the staging/production bucke
 	$(MAKE) set-manifest-pull-policy PULL_POLICY=IfNotPresent TARGET_RESOURCE="./controlplane/kubeadm/config/default/manager_pull_policy.yaml"
 
 .PHONY: release-manifests
-release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish with a release
+release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) $(RUNTIME_OPENAPI_GEN) ## Build the manifests to publish with a release
 	# Build core-components.
 	$(KUSTOMIZE) build config/default > $(RELEASE_DIR)/core-components.yaml
 	# Build bootstrap-components.
@@ -632,6 +635,9 @@ release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish
 	cat $(RELEASE_DIR)/control-plane-components.yaml >> $(RELEASE_DIR)/cluster-api-components.yaml
 	# Add metadata to the release artifacts
 	cp metadata.yaml $(RELEASE_DIR)/metadata.yaml
+
+	# Generate OpenAPI specification.
+	$(RUNTIME_OPENAPI_GEN) --version $(RELEASE_TAG)--output-file $(RELEASE_DIR)/runtime-sdk-openapi.yaml
 
 .PHONY: release-manifests-dev
 release-manifests-dev: ## Build the development manifests and copies them in the release folder
@@ -806,6 +812,9 @@ $(CONVERSION_GEN_BIN): $(CONVERSION_GEN) ## Build a local copy of conversion-gen
 .PHONY: $(OPENAPI_GEN_BIN)
 $(OPENAPI_GEN_BIN): $(OPENAPI_GEN) ## Build a local copy of openapi-gen.
 
+.PHONY: $(RUNTIME_OPENAPI_GEN_BIN)
+$(RUNTIME_OPENAPI_GEN_BIN): $(RUNTIME_OPENAPI_GEN) ## Build a local copy of runtime-openapi-gen.
+
 .PHONY: $(CONVERSION_VERIFIER_BIN)
 $(CONVERSION_VERIFIER_BIN): $(CONVERSION_VERIFIER) ## Build a local copy of conversion-verifier.
 
@@ -845,8 +854,15 @@ $(CONVERSION_GEN): # Build conversion-gen from tools folder.
 $(CONVERSION_VERIFIER): $(TOOLS_DIR)/go.mod # Build conversion-verifier from tools folder.
 	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/$(CONVERSION_VERIFIER_BIN) sigs.k8s.io/cluster-api/hack/tools/conversion-verifier
 
+## We are forcing a rebuilt of openapi-gen via PHONY so that we're always using an up-to-date version.
+.PHONY: $(OPENAPI_GEN)
 $(OPENAPI_GEN): $(TOOLS_DIR)/go.mod # Build openapi-gen from tools folder.
 	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/$(OPENAPI_GEN_BIN) sigs.k8s.io/cluster-api/hack/tools/openapi-gen
+
+## We are forcing a rebuilt of runtime-openapi-gen via PHONY so that we're always using an up-to-date version.
+.PHONY: $(RUNTIME_OPENAPI_GEN)
+$(RUNTIME_OPENAPI_GEN): $(TOOLS_DIR)/go.mod # Build openapi-gen from tools folder.
+	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/$(RUNTIME_OPENAPI_GEN_BIN) sigs.k8s.io/cluster-api/hack/tools/runtime-openapi-gen
 
 $(GOTESTSUM): # Build gotestsum from tools folder.
 	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOTESTSUM_PKG) $(GOTESTSUM_BIN) $(GOTESTSUM_VER)
