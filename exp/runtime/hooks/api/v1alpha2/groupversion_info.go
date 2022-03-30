@@ -29,7 +29,7 @@ var (
 
 	// catalogBuilder is used to add rpc services and their request and response types
 	// to a Catalog.
-	catalogBuilder = catalog.Builder{GroupVersion: GroupVersion}
+	catalogBuilder = &catalog.Builder{GroupVersion: GroupVersion}
 
 	// AddToCatalog adds rpc services defined in this package and their request and
 	// response types to a catalog.
@@ -39,7 +39,7 @@ var (
 	// method's request and response types defined in this package.
 	// NOTE: this object is required to allow registration of automatically generated
 	// conversions func.
-	localSchemeBuilder = catalogBuilder.SchemeBuilder
+	localSchemeBuilder = catalogBuilder
 )
 
 func init() {
