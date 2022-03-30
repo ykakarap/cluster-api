@@ -62,7 +62,6 @@ import (
 	"sigs.k8s.io/cluster-api/feature"
 	runtimecatalog "sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
-	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 	"sigs.k8s.io/cluster-api/version"
 	"sigs.k8s.io/cluster-api/webhooks"
 )
@@ -305,11 +304,8 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		os.Exit(1)
 	}
 
-	registry := registry.New()
-
 	runtimeClient := runtimeclient.New(runtimeclient.Options{
-		Catalog:  catalog,
-		Registry: registry,
+		Catalog: catalog,
 	})
 
 	if feature.Gates.Enabled(feature.ClusterTopology) {

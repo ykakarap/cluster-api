@@ -33,14 +33,12 @@ import (
 
 // Options are creation options for a Client.
 type Options struct {
-	Catalog  *catalog.Catalog
-	Registry registry.Registry
+	Catalog *catalog.Catalog
 }
 
 func New(options Options) Client {
 	return &client{
-		catalog:  options.Catalog,
-		registry: options.Registry,
+		catalog: options.Catalog,
 	}
 }
 
@@ -56,8 +54,7 @@ type Client interface {
 }
 
 type client struct {
-	catalog  *catalog.Catalog
-	registry registry.Registry
+	catalog *catalog.Catalog
 
 	host     string
 	basePath string
@@ -106,12 +103,12 @@ type hookClient struct {
 }
 
 func (h hookClient) Call(ctx context.Context, name string, in, out runtime.Object) error {
-	gvh, err := h.client.catalog.GroupVersionHook(h.hook)
+	_, err := h.client.catalog.GroupVersionHook(h.hook)
 	if err != nil {
 		return err
 	}
 
-	registration := h.client.registry.GetRuntimeExtension(gvh, name)
+	registration, _ := registry.Extensions().Get(name)
 
 	c := createHttpClient(registration)
 
@@ -124,7 +121,7 @@ func (h hookClient) CallAll(ctx context.Context, in, out runtime.Object) error {
 		return err
 	}
 
-	registrations := h.client.registry.GetRuntimeExtensions(gvh)
+	registrations, _ := registry.Extensions().List(gvh)
 	for _, registration := range registrations {
 		c := createHttpClient(registration)
 
@@ -136,7 +133,7 @@ func (h hookClient) CallAll(ctx context.Context, in, out runtime.Object) error {
 	return nil
 }
 
-func createHttpClient(registration registry.RuntimeExtensionRegistration) httpClient {
+func createHttpClient(registration *registry.RuntimeExtensionRegistration) httpClient {
 	return httpClient{}
 }
 
