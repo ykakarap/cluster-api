@@ -310,7 +310,8 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		os.Exit(1)
 	}
 	runtimeClient := runtimeclient.New(runtimeclient.Options{
-		Catalog: catalog,
+		Catalog:  catalog,
+		Registry: registry.Extensions(),
 	})
 	if feature.Gates.Enabled(feature.ClusterTopology) {
 		if feature.Gates.Enabled(feature.RuntimeSDK) {

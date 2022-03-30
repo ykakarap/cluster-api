@@ -58,8 +58,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 }
 
 func autoConvert_v1alpha2_DiscoveryHookRequest_To_v1alpha3_DiscoveryHookRequest(in *DiscoveryHookRequest, out *v1alpha3.DiscoveryHookRequest, s conversion.Scope) error {
-	out.Second = in.Second
-	out.First = in.First
 	return nil
 }
 
@@ -69,8 +67,6 @@ func Convert_v1alpha2_DiscoveryHookRequest_To_v1alpha3_DiscoveryHookRequest(in *
 }
 
 func autoConvert_v1alpha3_DiscoveryHookRequest_To_v1alpha2_DiscoveryHookRequest(in *v1alpha3.DiscoveryHookRequest, out *DiscoveryHookRequest, s conversion.Scope) error {
-	out.Second = in.Second
-	out.First = in.First
 	return nil
 }
 

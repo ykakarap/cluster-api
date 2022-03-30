@@ -26,9 +26,6 @@ import (
 // +kubebuilder:object:root=true
 type DiscoveryHookRequest struct {
 	metav1.TypeMeta `json:",inline"`
-
-	Second string `json:"second"`
-	First  int    `json:"first"`
 }
 
 // DiscoveryHookResponse foo bar baz.

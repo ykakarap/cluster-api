@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -147,8 +148,12 @@ func (c *fakeClient) Hook(service catalog.Hook) runtimeclient.HookClient {
 	panic("not implemented")
 }
 
-func (c *fakeClient) IsRegistryReady() bool {
+func (c *fakeClient) IsReady() bool {
 	return c.ready
+}
+
+func (c *fakeClient) WarmUp(ext *runtimev1.ExtensionList) error {
+	panic("implement this method here")
 }
 
 func (c *fakeClient) SetRegistryReady(ready bool) {
@@ -167,20 +172,23 @@ func (c *fakeClient) Extension(ext *runtimev1.Extension) runtimeclient.Extension
 	}
 }
 
-func (e fakeExtensionClient) Discover() ([]runtimev1.RuntimeExtension, error) {
+func (e fakeExtensionClient) Discover(ctx context.Context) (*runtimev1.Extension, error) {
 	v, ok := e.client.extensionStore[namespacedName(e.ext).String()]
 	if !ok {
 		return nil, errors.New("runtimeExtensions could not be found for Extension")
 	}
-	return v, nil
+	modifiedExtension := &runtimev1.Extension{}
+	e.ext.DeepCopyInto(modifiedExtension)
+	modifiedExtension.Status.RuntimeExtensions = v
+	return modifiedExtension, nil
+}
+
+func (e fakeExtensionClient) Register() error {
+	return errors.New("implement me")
 }
 
 func (e fakeExtensionClient) Unregister() error {
 	return errors.New("implement me")
-}
-
-func (c *fakeClient) ServiceOld(service catalog.Hook, opts ...runtimeclient.ServiceOption) runtimeclient.ServiceClient {
-	panic("not implemented")
 }
 
 // namespacedName returns the NamespacedName for the extension.
