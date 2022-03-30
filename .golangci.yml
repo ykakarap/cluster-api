@@ -265,7 +265,6 @@ run:
   - exp/runtime/hooks
   - exp/runtime/internal
   - internal/runtime/client
-  - internal/runtime/registry
   - internal/runtime/server
   - poc
   - runtime-openapi-gen

@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
+
 	runtimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
@@ -31,12 +32,13 @@ func TestWarmUpExtensions(t *testing.T) {
 	g := NewWithT(t)
 
 	e := extensions()
-	e.WarmUp(&runtimev1.ExtensionList{})
-
+	err := e.WarmUp(&runtimev1.ExtensionList{})
+	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(e.IsReady()).To(BeTrue())
+
 	g.Expect(e.Add(&runtimev1.Extension{})).To(Succeed())
 	g.Expect(e.Remove(&runtimev1.Extension{})).To(Succeed())
-	_, err := e.List(catalog.GroupVersionHook{Group: "foo", Version: "bar", Hook: "bak"})
+	_, err = e.List(catalog.GroupVersionHook{Group: "foo", Version: "bar", Hook: "bak"})
 	g.Expect(err).ToNot(HaveOccurred())
 	_, err = e.Get("foo")
 	g.Expect(err).ToNot(HaveOccurred())
@@ -106,7 +108,9 @@ func TestExtensions(t *testing.T) {
 	e := extensions()
 
 	// WarmUp with extension1
-	e.WarmUp(&runtimev1.ExtensionList{Items: []runtimev1.Extension{*extension1}})
+	err := e.WarmUp(&runtimev1.ExtensionList{Items: []runtimev1.Extension{*extension1}})
+	g.Expect(err).ToNot(HaveOccurred())
+
 	g.Expect(e.IsReady()).To(BeTrue())
 
 	// Get an extension by name

@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
 
-// TODO: handle namespace selector
+// TODO: handle namespace selector.
 
 var (
 	once     sync.Once
@@ -192,7 +192,7 @@ func (extensions *extensionRegistry) Get(name string) (*RuntimeExtensionRegistra
 	extensions.lock.RLock()
 	defer extensions.lock.RUnlock()
 
-	r, _ := extensions.items[name]
+	r := extensions.items[name]
 	return r, nil
 }
 
