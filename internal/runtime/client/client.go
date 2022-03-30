@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"net/http"
 	"path"
 
@@ -49,13 +50,11 @@ const (
 type Client interface {
 	Extension(ext *runtimev1.Extension) ExtensionClient
 	Hook(service catalog.Hook) HookClient
-
 	ServiceOld(service catalog.Hook, opts ...ServiceOption) ServiceClient
 }
 
 type client struct {
-	catalog *catalog.Catalog
-
+	catalog  *catalog.Catalog
 	host     string
 	basePath string
 	// TLS config
@@ -65,6 +64,7 @@ var _ Client = &client{}
 
 type ExtensionClient interface {
 	Discover() ([]runtimev1.RuntimeExtension, error)
+	Unregister() error
 }
 
 func (c *client) Extension(ext *runtimev1.Extension) ExtensionClient {
@@ -81,7 +81,11 @@ type extensionClient struct {
 }
 
 func (e extensionClient) Discover() ([]runtimev1.RuntimeExtension, error) {
-	panic("implement me")
+	return nil, errors.New("implement me")
+}
+
+func (e extensionClient) Unregister() error {
+	return errors.New("implement me")
 }
 
 type HookClient interface {
@@ -107,9 +111,7 @@ func (h hookClient) Call(ctx context.Context, name string, in, out runtime.Objec
 	if err != nil {
 		return err
 	}
-
 	registration, _ := registry.Extensions().Get(name)
-
 	c := createHttpClient(registration)
 
 	return c.Call(ctx, in, out)

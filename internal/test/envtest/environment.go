@@ -54,6 +54,7 @@ import (
 	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
 	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1beta1"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
+	expruntimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 	"sigs.k8s.io/cluster-api/internal/test/builder"
 	"sigs.k8s.io/cluster-api/util/kubeconfig"
 	"sigs.k8s.io/cluster-api/webhooks"
@@ -78,6 +79,7 @@ func init() {
 	utilruntime.Must(addonsv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(controlplanev1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(admissionv1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(expruntimev1.AddToScheme(scheme.Scheme))
 }
 
 // RunInput is the input for Run.
@@ -221,6 +223,9 @@ func newEnvironment(uncachedObjs ...client.Object) *Environment {
 		klog.Fatalf("unable to create webhook: %+v", err)
 	}
 	if err := (&webhooks.ClusterClass{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
+		klog.Fatalf("unable to create webhook: %+v", err)
+	}
+	if err := (&expruntimev1.Extension{}).SetupWebhookWithManager(mgr); err != nil {
 		klog.Fatalf("unable to create webhook: %+v", err)
 	}
 	if err := (&clusterv1.Machine{}).SetupWebhookWithManager(mgr); err != nil {

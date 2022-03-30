@@ -52,7 +52,7 @@ func TestExtensions(t *testing.T) {
 			Name: "extension1",
 		},
 		Spec: runtimev1.ExtensionSpec{
-			ClientConfig: runtimev1.WebhookClientConfig{
+			ClientConfig: runtimev1.ExtensionClientConfig{
 				URL: pointer.String("https://extesions1.com/"),
 			},
 		},
@@ -88,7 +88,7 @@ func TestExtensions(t *testing.T) {
 			Name: "extension2",
 		},
 		Spec: runtimev1.ExtensionSpec{
-			ClientConfig: runtimev1.WebhookClientConfig{
+			ClientConfig: runtimev1.ExtensionClientConfig{
 				URL: pointer.String("https://extesions2.com/"),
 			},
 		},

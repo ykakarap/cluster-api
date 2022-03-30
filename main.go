@@ -56,12 +56,14 @@ import (
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	expcontrollers "sigs.k8s.io/cluster-api/exp/controllers"
 	expruntimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
+	runtimecontroller "sigs.k8s.io/cluster-api/exp/runtime/controllers"
 	hooksv1alpha1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	hooksv1alpha2 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha2"
 	hooksv1alpha3 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/feature"
 	runtimecatalog "sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
+	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 	"sigs.k8s.io/cluster-api/version"
 	"sigs.k8s.io/cluster-api/webhooks"
 )
@@ -89,6 +91,7 @@ var (
 	machinePoolConcurrency        int
 	clusterResourceSetConcurrency int
 	machineHealthCheckConcurrency int
+	extensionConcurrency          int
 	syncPeriod                    time.Duration
 	webhookPort                   int
 	webhookCertDir                string
@@ -176,6 +179,9 @@ func InitFlags(fs *pflag.FlagSet) {
 
 	fs.IntVar(&machineHealthCheckConcurrency, "machinehealthcheck-concurrency", 10,
 		"Number of machine health checks to process simultaneously")
+
+	fs.IntVar(&extensionConcurrency, "extension-concurrency", 10,
+		"Number of extensions to process simultaneously")
 
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
@@ -303,12 +309,24 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterCacheReconciler")
 		os.Exit(1)
 	}
-
 	runtimeClient := runtimeclient.New(runtimeclient.Options{
 		Catalog: catalog,
 	})
-
 	if feature.Gates.Enabled(feature.ClusterTopology) {
+		if feature.Gates.Enabled(feature.RuntimeSDK) {
+			registry := registry.Extensions()
+			if err = (&runtimecontroller.ExtensionReconciler{
+				Client:           mgr.GetClient(),
+				APIReader:        mgr.GetAPIReader(),
+				RuntimeClient:    runtimeClient,
+				WatchFilterValue: watchFilterValue,
+				Registry:         registry,
+			}).SetupWithManager(ctx, mgr, concurrency(extensionConcurrency)); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "Extension")
+				os.Exit(1)
+			}
+		}
+
 		unstructuredCachingClient, err := client.NewDelegatingClient(
 			client.NewDelegatingClientInput{
 				// Use the default client for write operations.

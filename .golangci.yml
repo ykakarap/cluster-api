@@ -261,9 +261,7 @@ run:
   - internal/runtime/catalog/openapi.go
   skip-dirs:
   - third_party
-  - exp/runtime/controllers
   - exp/runtime/hooks
-  - exp/runtime/internal
   - internal/runtime/client
   - internal/runtime/server
   - poc

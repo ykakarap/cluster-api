@@ -27,80 +27,76 @@ import (
 // ExtensionSpec defines the desired state of Extension.
 type ExtensionSpec struct {
 	// ClientConfig defines how to communicate with the hook.
-	// Required
-	ClientConfig WebhookClientConfig `json:"clientConfig" protobuf:"bytes,2,opt,name=clientConfig"`
+	ClientConfig ExtensionClientConfig `json:"clientConfig"`
 
 	// Default to the empty LabelSelector, which matches everything.
 	// +optional
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty" protobuf:"bytes,5,opt,name=namespaceSelector"`
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
-// WebhookClientConfig contains the information to make a TLS
-// connection with the webhook.
-type WebhookClientConfig struct {
-	// `url` gives the location of the webhook, in standard URL form
+// ExtensionClientConfig contains the information to make a TLS
+// connection with the extension.
+type ExtensionClientConfig struct {
+	// URL gives the location of the extension, in standard URL form
 	// (`scheme://host:port/path`). Exactly one of `url` or `service`
 	// must be specified.
 	//
 	// The `host` should not refer to a service running in the cluster; use
-	// the `service` field instead. The host might be resolved via external
-	// DNS in some apiservers (e.g., `kube-apiserver` cannot resolve
-	// in-cluster DNS as that would be a layering violation). `host` may
-	// also be an IP address.
+	// the `service` field instead.
 	//
 	// Please note that using `localhost` or `127.0.0.1` as a `host` is
-	// risky unless you take great care to run this webhook on all hosts
-	// which run an apiserver which might need to make calls to this
-	// webhook. Such installs are likely to be non-portable, i.e., not easy
+	// risky unless you take great care to run this extension on all hosts
+	// which run a controller which might need to make calls to this
+	// extension. Such installs are likely to be non-portable, i.e., not easy
 	// to turn up in a new cluster.
 	//
-	// The scheme must be "https"; the URL must begin with "https://".
+	// The scheme should be "https"; the URL should begin with "https://".
+	// "http" is supported for insecure development purposes only.
 	//
 	// A path is optional, and if present may be any string permissible in
-	// a URL. You may use the path to pass an arbitrary string to the
-	// webhook, for example, a cluster identifier.
+	// a URL. If a path is set it will be used as prefix and the hook-specific
+	// path will be appended.
 	//
 	// Attempting to use a user or basic auth e.g. "user:password@" is not
 	// allowed. Fragments ("#...") and query parameters ("?...") are not
 	// allowed, either.
 	//
 	// +optional
-	URL *string `json:"url,omitempty" protobuf:"bytes,3,opt,name=url"`
+	URL *string `json:"url,omitempty"`
 
-	// `service` is a reference to the service for this webhook. Either
-	// `service` or `url` must be specified.
+	// Service is a reference to the Kubernetes service for this extension.
+	// Either `service` or `url` must be specified.
 	//
-	// If the webhook is running within the cluster, then you should use `service`.
+	// If the extension is running within a cluster, then you should use `service`.
 	//
 	// +optional
-	Service *ServiceReference `json:"service,omitempty" protobuf:"bytes,1,opt,name=service"`
+	Service *ServiceReference `json:"service,omitempty"`
 
-	// `caBundle` is a PEM encoded CA bundle which will be used to validate the webhook's server certificate.
-	// If unspecified, system trust roots on the apiserver are used.
+	// CABundle is a PEM encoded CA bundle which will be used to validate the extension's server certificate.
+	// If unspecified, // FIXME: ?
 	// +optional
-	CABundle []byte `json:"caBundle,omitempty" protobuf:"bytes,2,opt,name=caBundle"`
+	CABundle []byte `json:"caBundle,omitempty"`
 }
 
 // ServiceReference holds a reference to a Kubernetes Service.
 type ServiceReference struct {
-	// `namespace` is the namespace of the service.
-	// Required
-	Namespace string `json:"namespace" protobuf:"bytes,1,opt,name=namespace"`
+	// Namespace is the namespace of the service.
+	Namespace string `json:"namespace"`
 
-	// `name` is the name of the service.
-	// Required
-	Name string `json:"name" protobuf:"bytes,2,opt,name=name"`
+	// Name is the name of the service.
+	Name string `json:"name"`
 
-	// `path` is an optional URL path which will be sent in any request to
-	// this service.
+	// Path is an optional URL path which will be sent in any request to
+	// this service.  If a path is set it will be used as prefix and the hook-specific
+	// path will be appended.
 	// +optional
-	Path *string `json:"path,omitempty" protobuf:"bytes,3,opt,name=path"`
+	Path *string `json:"path,omitempty"`
 
-	// If specified, the port on the service that hosting webhook.
+	// Port is the port on the service that hosting extension.
 	// Default to 443 for backward compatibility.
 	// `port` should be a valid port number (1-65535, inclusive).
 	// +optional
-	Port *int32 `json:"port,omitempty" protobuf:"varint,4,opt,name=port"`
+	Port *int32 `json:"port,omitempty"`
 }
 
 // ANCHOR_END: ExtensionSpec
@@ -109,34 +105,46 @@ type ServiceReference struct {
 
 // ExtensionStatus defines the observed state of Extension.
 type ExtensionStatus struct {
+	// RuntimeExtensions defines the current RuntimeExtensions supported by the Extension.
 	RuntimeExtensions []RuntimeExtension `json:"runtimeExtensions,omitempty"`
 
-	// Conditions define the current service state of the MachinePool.
+	// Conditions define the current service state of the Extension.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }
 
 // RuntimeExtension specifies the details of a particular runtime extension registered by an Extension.
 type RuntimeExtension struct {
-	Name           string             `json:"name"`
-	Hook           Hook               `json:"hook"`
-	TimeoutSeconds *int32             `json:"timeoutSeconds,omitempty"`
-	FailurePolicy  *FailurePolicyType `json:"failurePolicy,omitempty"`
+	// Name is the name of the RuntimeExtension
+	Name string `json:"name"`
+
+	// Hook defines the specific runtime event for which this RuntimeExtension calls.
+	Hook Hook `json:"hook"`
+
+	// TimeoutSeconds defines the timeout duration for client calls to the Hook
+	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+
+	// FailurePolicy defines how failures in calls to the Hook should be handled by a client.
+	FailurePolicy *FailurePolicyType `json:"failurePolicy,omitempty"`
 }
 
-// Hook defines the runtime event when the runtime extensions is called.
+// Hook defines the runtime event when the RuntimeExtension is called.
 type Hook struct {
+	// APIVersion is the Version of the Hook
 	APIVersion string `json:"apiVersion"`
-	Name       string `json:"name"`
+
+	// Name is the name of the hook
+	Name string `json:"name"`
 }
 
 // FailurePolicyType specifies a failure policy that defines how unrecognized errors from the admission endpoint are handled.
 type FailurePolicyType string
 
 const (
-	// Ignore means that an error calling the webhook is ignored.
+	// Ignore means that an error calling the extension is ignored.
 	Ignore FailurePolicyType = "Ignore"
-	// Fail means that an error calling the webhook causes the admission to fail.
+
+	// Fail means that an error calling the extension causes the admission to fail.
 	Fail FailurePolicyType = "Fail"
 )
 
@@ -154,7 +162,10 @@ type Extension struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ExtensionSpec   `json:"spec,omitempty"`
+	// Spec is the desired state of the Extension
+	Spec ExtensionSpec `json:"spec,omitempty"`
+
+	// Status is the current state of the Extension
 	Status ExtensionStatus `json:"status,omitempty"`
 }
 
@@ -180,3 +191,8 @@ type ExtensionList struct {
 func init() {
 	SchemeBuilder.Register(&Extension{}, &ExtensionList{})
 }
+
+const (
+	// RuntimeExtensionDiscovered is a condition set on an Extension object once it has been discovered by the Runtime SDK client.
+	RuntimeExtensionDiscovered clusterv1.ConditionType = "Discovered"
+)

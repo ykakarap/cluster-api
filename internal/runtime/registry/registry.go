@@ -69,7 +69,7 @@ type RuntimeExtensionRegistration struct {
 	// The GroupVersionHook the Runtime Extension implements.
 	GroupVersionHook catalog.GroupVersionHook
 
-	ClientConfig   runtimev1.WebhookClientConfig
+	ClientConfig   runtimev1.ExtensionClientConfig
 	TimeoutSeconds *int32
 	FailurePolicy  *runtimev1.FailurePolicyType
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,14 +31,18 @@ import (
 // ExtensionReconciler reconciles an Extension object.
 type ExtensionReconciler struct {
 	Client        client.Client
+	APIReader     client.Reader
 	RuntimeClient runtimeclient.Client
-	Registry      registry.Registry
+	Registry      registry.ExtensionRegistry
+
+	// WatchFilterValue is the label value used to filter events prior to reconciliation.
+	WatchFilterValue string
 }
 
 func (r *ExtensionReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
-	return (&extensions.ExtensionReconciler{
-		Client:        r.Client,
-		RuntimeClient: r.RuntimeClient,
-		Registry:      r.Registry,
+	return (&extensions.Reconciler{
+		Client:           r.Client,
+		RuntimeClient:    r.RuntimeClient,
+		WatchFilterValue: r.WatchFilterValue,
 	}).SetupWithManager(ctx, mgr, options)
 }
