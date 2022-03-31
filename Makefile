@@ -100,7 +100,6 @@ CONVERSION_GEN_BIN := conversion-gen
 CONVERSION_GEN := $(abspath $(TOOLS_BIN_DIR)/$(CONVERSION_GEN_BIN))
 CONVERSION_GEN_PKG := k8s.io/code-generator/cmd/conversion-gen
 
-
 ENVSUBST_VER := v2.0.0-20210730161058-179042472c46
 ENVSUBST_BIN := envsubst
 ENVSUBST := $(abspath $(TOOLS_BIN_DIR)/$(ENVSUBST_BIN)-$(ENVSUBST_VER))
@@ -180,7 +179,7 @@ help:  # Display this help
 
 ##@ generate:
 
-ALL_GENERATE_MODULES = core kubeadm-bootstrap kubeadm-control-plane runtime
+ALL_GENERATE_MODULES = core kubeadm-bootstrap kubeadm-control-plane
 
 .PHONY: generate
 generate: ## Run all generate-manifests-*, generate-go-deepcopy-*, generate-go-conversions-* and generate-go-openapi targets
@@ -201,6 +200,7 @@ generate-manifests-core: $(CONTROLLER_GEN) $(KUSTOMIZE) ## Generate manifests e.
 		paths=./$(EXP_DIR)/addons/api/... \
 		paths=./$(EXP_DIR)/addons/internal/controllers/... \
 		paths=./$(EXP_DIR)/runtime/api/... \
+		paths=./$(EXP_DIR)/runtime/internal/controllers/... \
 		crd:crdVersions=v1 \
 		rbac:roleName=manager-role \
 		output:crd:dir=./config/crd/bases \
@@ -237,10 +237,6 @@ generate-manifests-kubeadm-control-plane: $(CONTROLLER_GEN) ## Generate manifest
 		output:webhook:dir=./controlplane/kubeadm/config/webhook \
 		webhook
 
-.PHONY: generate-manifests-runtime
-generate-manifests-runtime: $(CONTROLLER_GEN) ## Generate manifests e.g. CRD, RBAC etc. for runtime
-	# TODO
-
 .PHONY: generate-go-deepcopy
 generate-go-deepcopy:  ## Run all generate-go-deepcopy-* targets
 	$(MAKE) $(addprefix generate-go-deepcopy-,$(ALL_GENERATE_MODULES))
@@ -253,6 +249,7 @@ generate-go-deepcopy-core: $(CONTROLLER_GEN) ## Generate deepcopy go code for co
 		paths=./$(EXP_DIR)/api/... \
 		paths=./$(EXP_DIR)/addons/api/... \
 		paths=./$(EXP_DIR)/runtime/api/... \
+		paths=./$(EXP_DIR)/runtime/hooks/api/... \
 		paths=./cmd/clusterctl/... \
 		paths=./internal/test/builder/...
 
@@ -269,15 +266,10 @@ generate-go-deepcopy-kubeadm-control-plane: $(CONTROLLER_GEN) ## Generate deepco
 		object:headerFile=./hack/boilerplate/boilerplate.generatego.txt \
 		paths=./controlplane/kubeadm/api/...
 
-.PHONY: generate-go-deepcopy-runtime
-generate-go-deepcopy-runtime: $(CONTROLLER_GEN) ## Generate deepcopy go code for runtime
-	$(CONTROLLER_GEN) \
-		object:headerFile=./hack/boilerplate/boilerplate.generatego.txt \
-		paths=./exp/runtime/hooks/api/...
-
 .PHONY: generate-go-conversions
 generate-go-conversions: ## Run all generate-go-conversions-* targets
 	$(MAKE) $(addprefix generate-go-conversions-,$(ALL_GENERATE_MODULES))
+	$(MAKE) generate-go-conversions-runtime
 
 .PHONY: generate-go-conversions-core
 generate-go-conversions-core: $(CONVERSION_GEN) ## Generate conversions go code for core
