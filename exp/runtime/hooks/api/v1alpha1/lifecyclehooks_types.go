@@ -62,7 +62,15 @@ type BeforeClusterCreateRequest struct {
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
-func BeforeClusterCreate(*BeforeClusterCreateRequest, *BlockingResponse) {}
+// BeforeClusterCreateResponse is the response of BeforeClusterCreate hook.
+// +kubebuilder:object:root=true
+type BeforeClusterCreateResponse struct {
+	// Note: This embedding is only done to help with the open api schema generation for the proposal.
+	// The final state of the response struct wil need some refactor to be more extensible.
+	BlockingResponse `json:",inline"`
+}
+
+func BeforeClusterCreate(*BeforeClusterCreateRequest, *BeforeClusterCreateResponse) {}
 
 // AfterControlPlaneInitialized Hook
 
@@ -75,7 +83,14 @@ type AfterControlPlaneInitializedRequest struct {
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
-func AfterControlPlaneInitialized(*AfterControlPlaneInitializedRequest, *NonBlockingResponse) {}
+// AfterControlPlaneInitializedResponse is the response of AfterControlPlaneInitialized hook.
+// +kubebuilder:object:root=true
+type AfterControlPlaneInitializedResponse struct {
+	NonBlockingResponse `json:",inline"`
+}
+
+func AfterControlPlaneInitialized(*AfterControlPlaneInitializedRequest, *AfterControlPlaneInitializedResponse) {
+}
 
 // BeforeClusterUpgrade Hook.
 
@@ -93,7 +108,13 @@ type BeforeClusterUpgradeRequest struct {
 	ToKubernetesVersion string `json:"toKubernetesVersion"`
 }
 
-func BeforeClusterUpgrade(*BeforeClusterUpgradeRequest, *BlockingResponse) {}
+// BeforeClusterUpgradeResponse is the response of BeforeClusterUpgrade hook.
+// +kubebuilder:object:root=true
+type BeforeClusterUpgradeResponse struct {
+	BlockingResponse `json:",inline"`
+}
+
+func BeforeClusterUpgrade(*BeforeClusterUpgradeRequest, *BeforeClusterUpgradeResponse) {}
 
 // AfterControlPlaneUpgrade Hook.
 
@@ -109,7 +130,13 @@ type AfterControlPlaneUpgradeRequest struct {
 	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
-func AfterControlPlaneUpgrade(*AfterControlPlaneUpgradeRequest, *BlockingResponse) {}
+// AfterControlPlaneUpgradeResponse is the response of AfterControlPlaneUpgrade hook.
+// +kubebuilder:object:root=true
+type AfterControlPlaneUpgradeResponse struct {
+	BlockingResponse `json:",inline"`
+}
+
+func AfterControlPlaneUpgrade(*AfterControlPlaneUpgradeRequest, *AfterControlPlaneUpgradeResponse) {}
 
 // AfterClusterUpgrade Hook.
 
@@ -125,7 +152,13 @@ type AfterClusterUpgradeRequest struct {
 	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
-func AfterClusterUpgrade(*AfterClusterUpgradeRequest, *NonBlockingResponse) {}
+// AfterClusterUpgradeResponse is the response of AfterClusterUpgrade hook.
+// +kubebuilder:object:root=true
+type AfterClusterUpgradeResponse struct {
+	NonBlockingResponse `json:",inline"`
+}
+
+func AfterClusterUpgrade(*AfterClusterUpgradeRequest, *AfterClusterUpgradeResponse) {}
 
 // BeforeClusterDeleteRequest is the request of the hook.
 // +kubebuilder:object:root=true
@@ -136,42 +169,48 @@ type BeforeClusterDeleteRequest struct {
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
-func BeforeClusterDelete(*BeforeClusterDeleteRequest, *BlockingResponse) {}
+// BeforeClusterDeleteResponse is the response of BeforeClusterDelete hook.
+// +kubebuilder:object:root=true
+type BeforeClusterDeleteResponse struct {
+	BlockingResponse `json:",inline"`
+}
+
+func BeforeClusterDelete(*BeforeClusterDeleteRequest, *BeforeClusterDeleteResponse) {}
 
 func init() {
 	catalogBuilder.RegisterHook(BeforeClusterCreate, &catalog.HookMeta{
 		Tags:        []string{"Lifecycle Hooks"},
 		Summary:     "Called before Cluster topology is created",
-		Description: "This blocking hook is called after the Cluster is crated by the user and immediately before all the objects which are part of a Cluster topology are going to be created",
+		Description: "This hook is called after the Cluster object has been created by the user, immediately before all the objects which are part of a Cluster topology are going to be created. Runtime Extension implementers can use this hook to determine/prepare add-ons for the Cluster and block the creation of those objects.",
 	})
 
 	catalogBuilder.RegisterHook(AfterControlPlaneInitialized, &catalog.HookMeta{
 		Tags:        []string{"Lifecycle Hooks"},
 		Summary:     "Called after the Control Plane is available for the first time",
-		Description: "This non-blocking hook is called after the ControlPlane for the Cluster is marked as available for the first time",
+		Description: "This hook is called after the ControlPlane for the Cluster is marked as available for the first time. Runtime Extension implementers can use this hook to execute tasks that are only possible once the Control Plane is available. This hook does not block any further changes to the Cluster.",
 	})
 
 	catalogBuilder.RegisterHook(BeforeClusterUpgrade, &catalog.HookMeta{
 		Tags:        []string{"Lifecycle Hooks"},
-		Summary:     "Called before the Cluster being upgrade",
-		Description: "This hook is called after the Cluster object has been updated with a new spec.topology.version  by the user, and immediately before the new version is going to be propagated to the Control Plane",
+		Summary:     "Called before the Cluster begins upgrade",
+		Description: "This hook is called after the Cluster object has been updated with a new spec.topology.version by the user, and immediately before the new version is going to be propagated to the control plane. Runtime Extension implementers can use this hook to execute pre-upgrade tasks and block upgrades of the ControlPlane and Workers.",
 	})
 
 	catalogBuilder.RegisterHook(AfterControlPlaneUpgrade, &catalog.HookMeta{
 		Tags:        []string{"Lifecycle Hooks"},
 		Summary:     "Called after the Control Plane finished upgrade",
-		Description: "This blocking hook is called after the Control Plane has been upgraded to the version specified in spec.topology.version, and immediately before the new version is going to be propagated the MachineDeployments existing in the Cluster",
+		Description: "This hook is called after the control plane has been upgraded to the version specified in spec.topology.version, and immediately before the new version is going to be propagated to the MachineDeployments existing in the Cluster. Runtime Extension implementers can use this hook to execute post-upgrade tasks and eventually block upgrades to workers.",
 	})
 
 	catalogBuilder.RegisterHook(AfterClusterUpgrade, &catalog.HookMeta{
 		Tags:        []string{"Lifecycle Hooks"},
 		Summary:     "Called after the Cluster finished upgrade",
-		Description: "This non-blocking hook is called after the Cluster, Control Plane and workers have been upgraded to the version specified in spec.topology.version",
+		Description: "TThis hook is called after the Cluster, control plane and workers have been upgraded to the version specified in spec.topology.version. Runtime Extensions implementers can use this hook to execute post-upgrade tasks. This hook does not block any further changes or upgrades to the Cluster.",
 	})
 
 	catalogBuilder.RegisterHook(BeforeClusterDelete, &catalog.HookMeta{
 		Tags:        []string{"Lifecycle Hooks"},
 		Summary:     "Called before the Cluster is deleted",
-		Description: "This blocking hook is called after the Cluster has been deleted by the user, and immediately before objects existing in the Cluster are going to be deleted",
+		Description: "This hook is called after the Cluster has been deleted by the user, and immediately before objects existing in the Cluster are going to be deleted. Runtime Extension implementers can use this hook to execute cleanup tasks and eventually block deletion of the Cluster and descendant objects until everything is ready.",
 	})
 }
