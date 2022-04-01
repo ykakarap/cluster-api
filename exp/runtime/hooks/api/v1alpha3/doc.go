@@ -15,4 +15,6 @@ limitations under the License.
 */
 
 // Package v1alpha3 contains the v1alpha3 idl implementation for extension1.
+// +kubebuilder:object:generate=true
+// +k8s:openapi-gen=true
 package v1alpha3

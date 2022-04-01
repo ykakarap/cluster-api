@@ -23,7 +23,6 @@ import (
 )
 
 // DiscoveryHookRequest foo bar baz.
-// +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 type DiscoveryHookRequest struct {
 	metav1.TypeMeta `json:",inline"`
@@ -33,7 +32,6 @@ type DiscoveryHookRequest struct {
 }
 
 // DiscoveryHookResponse foo bar baz.
-// +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 type DiscoveryHookResponse struct {
 	metav1.TypeMeta `json:",inline"`
@@ -41,13 +39,13 @@ type DiscoveryHookResponse struct {
 	Message string `json:"message"`
 }
 
-func DiscoveryHook(*DiscoveryHookRequest, *DiscoveryHookResponse) {}
+func Discovery(*DiscoveryHookRequest, *DiscoveryHookResponse) {}
 
 func init() {
-	catalogBuilder.RegisterHook(DiscoveryHook, &catalog.HookMeta{
-		Tags:        []string{"discovery"},
+	catalogBuilder.RegisterHook(Discovery, &catalog.HookMeta{
+		Tags:        []string{"Discovery"},
 		Summary:     "Discovery endpoint",
 		Description: "Discovery endpoint discovers...",
-		Deprecated:  true,
+		Singleton:   true,
 	})
 }

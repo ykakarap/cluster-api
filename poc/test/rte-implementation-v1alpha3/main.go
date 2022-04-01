@@ -8,7 +8,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha32 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	catalogHTTP "sigs.k8s.io/cluster-api/internal/runtime/server"
 )
@@ -18,7 +18,7 @@ import (
 var c = catalog.New()
 
 func init() {
-	v1alpha32.AddToCatalog(c)
+	v1alpha3.AddToCatalog(c)
 }
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 
 	operation1Handler, err := catalogHTTP.NewHandlerBuilder().
 		WithCatalog(c).
-		AddService(&v1alpha32.DiscoveryHook{}, doOperation1). // TODO: this is not strongly typed, but there are type checks when the service starts
+		AddService(v1alpha3.Discovery, doOperation1). // TODO: this is not strongly typed, but there are type checks when the service starts
 		// TODO: test with more services
 		Build()
 	if err != nil {
@@ -59,8 +59,8 @@ func main() {
 	}
 }
 
-func doOperation1(in *v1alpha32.DiscoveryHookRequest, out *v1alpha32.DiscoveryHookResponse) error {
-	fmt.Println("DiscoveryHook/v1alpha3 called")
-	out.Message = fmt.Sprintf("DiscoveryHook implementation version v1alpha3 - first: %d, second: %s", in.First, in.Second)
+func doOperation1(in *v1alpha3.DiscoveryHookRequest, out *v1alpha3.DiscoveryHookResponse) error {
+	fmt.Println("Discovery/v1alpha3 called")
+	out.Message = fmt.Sprintf("Discovery implementation version v1alpha3 - first: %d, second: %s", in.First, in.Second)
 	return nil
 }

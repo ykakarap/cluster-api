@@ -85,6 +85,10 @@ type HookMeta struct {
 
 	// Deprecated signals if the hook is deprecated.
 	Deprecated bool
+
+	// Singleton signals if the hook can only be implemented once on a
+	// Runtime Extension, e.g. like the DiscoveryHook.
+	Singleton bool
 }
 
 // OpenAPIDefinitionsGetter defines a func which returns OpenAPI definitions for all
@@ -329,7 +333,13 @@ var emptyGroupVersionHook = GroupVersionHook{}
 var emptyGroupVersionKind = schema.GroupVersionKind{}
 
 // GVHToPath calculates the path for a given GroupVersionHook.
+// This func is aligned with Kubernetes paths for cluster-wide resources, e.g.:
+// /apis/storage.k8s.io/v1/storageclasses/standard.
+// Note: name is only appended if set, e.g. the Discovery Hook does not have a name.
 // TODO: discuss eventually in which package this should be placed.
-func GVHToPath(gvs GroupVersionHook) string {
-	return fmt.Sprintf("/%s/%s/%s", gvs.Group, gvs.Version, gvs.Hook)
+func GVHToPath(gvh GroupVersionHook, name string) string {
+	if name == "" {
+		return fmt.Sprintf("/%s/%s/%s", gvh.Group, gvh.Version, strings.ToLower(gvh.Hook))
+	}
+	return fmt.Sprintf("/%s/%s/%s/%s", gvh.Group, gvh.Version, strings.ToLower(gvh.Hook), name)
 }

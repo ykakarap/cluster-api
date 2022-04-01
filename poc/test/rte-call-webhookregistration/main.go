@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha2"
-	v1alpha32 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	"sigs.k8s.io/cluster-api/internal/runtime/client"
 )
@@ -25,7 +25,7 @@ func init() {
 	// v1beta1.AddToScheme(s)
 
 	v1alpha2.AddToCatalog(c)
-	v1alpha32.AddToCatalog(c)
+	v1alpha3.AddToCatalog(c)
 }
 
 type fakeWebHookRegistration struct {
@@ -57,10 +57,9 @@ func main() {
 			Host(r.host).
 			Build()
 
-		svc := &v1alpha32.DiscoveryHook{}
-		in := &v1alpha32.DiscoveryHookRequest{First: 1, Second: "Hello CAPI runtime extensions!"}
-		out := &v1alpha32.DiscoveryHookResponse{}
-		if err := client.ServiceOld(svc, http.SpecVersion(r.version)).Invoke(ctx, in, out); err != nil {
+		in := &v1alpha3.DiscoveryHookRequest{First: 1, Second: "Hello CAPI runtime extensions!"}
+		out := &v1alpha3.DiscoveryHookResponse{}
+		if err := client.ServiceOld(v1alpha3.Discovery, http.SpecVersion(r.version)).Invoke(ctx, in, out); err != nil {
 			panic(err)
 		}
 

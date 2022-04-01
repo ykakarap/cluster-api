@@ -27,18 +27,16 @@ func init() {
 func main() {
 	ctx := context.Background()
 
+	// Note: this example is not functional anymore as it requires an entire manager to run the extension controller
+	// which we currently don't setup correctly here.
 	var mgr ctrl.Manager
-
-	r := registry.New()
-
 	runtimeClient := rtclient.New(rtclient.Options{
-		Catalog:  c,
-		Registry: r,
+		Catalog: c,
 	})
 
 	if err := (&controllers.ExtensionReconciler{
 		Client:        mgr.GetClient(),
-		Registry:      r,
+		Registry:      registry.Extensions(),
 		RuntimeClient: runtimeClient,
 	}).SetupWithManager(ctx, mgr, controller.Options{}); err != nil {
 		os.Exit(1)
@@ -55,9 +53,9 @@ func main() {
 	in := &v1alpha3.DiscoveryHookRequest{First: 1, Second: "Hello CAPI runtime extensions!"}
 	out := &v1alpha3.DiscoveryHookResponse{}
 
-	runtimeClient.Hook(v1alpha3.DiscoveryHook).Call(ctx, "http-proxy.patch", in, out)
+	runtimeClient.Hook(v1alpha3.Discovery).Call(ctx, "http-proxy.patch", in, out)
 
-	runtimeClient.Hook(v1alpha3.DiscoveryHook).CallAll(ctx, in, out)
+	runtimeClient.Hook(v1alpha3.Discovery).CallAll(ctx, in, out)
 
 	//runtimeClient = http.NewClientBuilder().
 	//	WithCatalog(c).
