@@ -14,83 +14,72 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package http
+package client
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
+	"net"
 	"net/http"
+	"net/url"
 	"path"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	runtimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
+	hooksv1alpha1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 )
 
+const defaultDiscoveryTimeout = 10 * time.Second
+
 // Options are creation options for a Client.
 type Options struct {
-	Catalog *catalog.Catalog
+	Catalog  *catalog.Catalog
+	Registry registry.ExtensionRegistry
 }
 
 func New(options Options) Client {
 	return &client{
-		catalog: options.Catalog,
+		catalog:  options.Catalog,
+		registry: options.Registry,
 	}
 }
 
-const (
-	StatusOK = http.StatusOK
-)
-
 type Client interface {
-	Extension(ext *runtimev1.Extension) ExtensionClient
-	Hook(service catalog.Hook) HookClient
-	ServiceOld(service catalog.Hook, opts ...ServiceOption) ServiceClient
-}
+	// IsReady returns true if the extension information is ready for usage and this happens
+	// after WarmUp is called at least once.
+	IsReady() bool
 
-type client struct {
-	catalog  *catalog.Catalog
-	host     string
-	basePath string
-	// TLS config
+	// WarmUp can be used to initialize a "cold" client with all the known extensions at a given time.
+	// After WarmUp completes the client is considered ready.
+	WarmUp(ext *runtimev1.ExtensionList) error
+
+	Hook(hook catalog.Hook) HookClient
+
+	Extension(ext *runtimev1.Extension) ExtensionClient
 }
 
 var _ Client = &client{}
 
-type ExtensionClient interface {
-	Discover() ([]runtimev1.RuntimeExtension, error)
-	Unregister() error
+type client struct {
+	catalog  *catalog.Catalog
+	registry registry.ExtensionRegistry
 }
 
-func (c *client) Extension(ext *runtimev1.Extension) ExtensionClient {
-	return &extensionClient{
-		client: c,
-		ext:    ext,
-	}
+func (c *client) IsReady() bool {
+	return c.registry.IsReady()
 }
 
-type extensionClient struct {
-	client *client
-	ext    *runtimev1.Extension
-	opts   []ServiceOption
-}
-
-func (e extensionClient) Discover() ([]runtimev1.RuntimeExtension, error) {
-	return nil, errors.New("implement me")
-}
-
-func (e extensionClient) Unregister() error {
-	return errors.New("implement me")
-}
-
-type HookClient interface {
-	Call(ctx context.Context, name string, in, out runtime.Object) error
-	CallAll(ctx context.Context, in, out runtime.Object) error
+func (c *client) WarmUp(ext *runtimev1.ExtensionList) error {
+	return c.registry.WarmUp(ext)
 }
 
 func (c *client) Hook(hook catalog.Hook) HookClient {
@@ -100,154 +89,267 @@ func (c *client) Hook(hook catalog.Hook) HookClient {
 	}
 }
 
+func (c *client) Extension(ext *runtimev1.Extension) ExtensionClient {
+	return &extensionClient{
+		client: c,
+		ext:    ext,
+	}
+}
+
+type HookClient interface {
+	// CallAll calls all the extension registered for the hook.
+	CallAll(ctx context.Context, request, response runtime.Object) error
+
+	// CallExtension calls only the extension with the given name.
+	Call(ctx context.Context, name string, request, response runtime.Object) error
+}
+
+var _ HookClient = &hookClient{}
+
 type hookClient struct {
 	client *client
 	hook   catalog.Hook
-	opts   []ServiceOption
 }
 
-func (h hookClient) Call(ctx context.Context, name string, in, out runtime.Object) error {
-	_, err := h.client.catalog.GroupVersionHook(h.hook)
-	if err != nil {
-		return err
-	}
-	registration, _ := registry.Extensions().Get(name)
-	c := createHttpClient(registration)
-
-	return c.Call(ctx, in, out)
-}
-
-func (h hookClient) CallAll(ctx context.Context, in, out runtime.Object) error {
+func (h *hookClient) CallAll(ctx context.Context, request, response runtime.Object) error {
 	gvh, err := h.client.catalog.GroupVersionHook(h.hook)
 	if err != nil {
 		return err
 	}
-
-	registrations, _ := registry.Extensions().List(gvh)
+	registrations, err := h.client.registry.List(gvh)
+	if err != nil {
+		return err
+	}
+	responses := []runtime.Object{}
 	for _, registration := range registrations {
-		c := createHttpClient(registration)
-
-		if err := c.Call(ctx, in, out); err != nil {
+		response, err := h.client.catalog.NewResponse(gvh)
+		if err != nil {
 			return err
 		}
+		// Follow-up: Call all extensions irrespective of error. Don't short-circuit on an error.
+		if err := h.Call(ctx, registration.Name, request, response); err != nil {
+			return err
+		}
+		responses = append(responses, response)
 	}
-
+	h.aggregateResponses(responses, response)
 	return nil
 }
 
-func createHttpClient(registration *registry.RuntimeExtensionRegistration) httpClient {
-	return httpClient{}
+func (h *hookClient) aggregateResponses(list []runtime.Object, into runtime.Object) {
+	panic("implement a response aggregation mechanism")
 }
 
-type httpClient struct {
-}
-
-func (h *httpClient) Call(ctx context.Context, in, out runtime.Object) error {
+func (h *hookClient) Call(ctx context.Context, name string, request, response runtime.Object) error {
+	registration, err := h.client.registry.Get(name)
+	if err != nil {
+		return err
+	}
+	var timeoutDuration time.Duration
+	if registration.TimeoutSeconds != nil {
+		timeoutDuration = time.Duration(*registration.TimeoutSeconds) * time.Second
+	}
+	opts := &httpCallOptions{
+		catalog:       h.client.catalog,
+		config:        registration.ClientConfig,
+		gvh:           registration.GroupVersionHook,
+		name:          strings.TrimSuffix(registration.Name, "."+registration.RegistrationName),
+		timeout:       timeoutDuration,
+		failurePolicy: registration.FailurePolicy,
+	}
+	if err := httpCall(ctx, request, response, opts); err != nil {
+		return errors.Wrapf(err, "failed to call extension '%s'", name)
+	}
 	return nil
 }
 
-type ServiceOption interface {
-	ApplyToServiceOptions(*ServiceOptions)
+type ExtensionClient interface {
+	// Discover makes the discovery call on the extension and updates the runtime extensions
+	// information in the extension status.
+	// TODO: Need a final decision on if we also want to run register inside discover.
+	Discover(context.Context) (*runtimev1.Extension, error)
+
+	// Register registers the extension with the client.
+	Register() error
+
+	//Unregister unregisters the extension with the client.
+	Unregister() error
 }
 
-type SpecVersion string
+var _ ExtensionClient = &extensionClient{}
 
-func (o SpecVersion) ApplyToServiceOptions(opts *ServiceOptions) {
-	opts.Version = string(o)
-}
-
-type ServiceOptions struct {
-	Version string // TODO: pointer?
-}
-
-type ServiceClient interface {
-	Invoke(ctx context.Context, in, out runtime.Object) error
-}
-
-type serviceClient struct {
+type extensionClient struct {
 	client *client
-	svc    catalog.Hook
-	opts   []ServiceOption
+	ext    *runtimev1.Extension
 }
 
-var _ ServiceClient = &serviceClient{}
-
-func (c *client) ServiceOld(svc catalog.Hook, opts ...ServiceOption) ServiceClient {
-	return &serviceClient{
-		client: c,
-		svc:    svc,
-		opts:   opts,
+func (e *extensionClient) Discover(ctx context.Context) (*runtimev1.Extension, error) {
+	gvh, err := e.client.catalog.GroupVersionHook(hooksv1alpha1.Discovery)
+	if err != nil {
+		return nil, err
 	}
+
+	request := &hooksv1alpha1.DiscoveryHookRequest{}
+	response := &hooksv1alpha1.DiscoveryHookResponse{}
+
+	// Future work: The discovery runtime extension could be operating on a different hook version than
+	// the latest. We will have to loop through different versions of the discover hook here to actually
+	// finish discovery.
+	opts := &httpCallOptions{
+		catalog: e.client.catalog,
+		config:  e.ext.Spec.ClientConfig,
+		gvh:     gvh,
+		timeout: defaultDiscoveryTimeout,
+	}
+	if err := httpCall(ctx, request, response, opts); err != nil {
+		return nil, errors.Wrap(err, "failed to call the discovery extension")
+	}
+
+	modifiedExtension := &runtimev1.Extension{}
+	e.ext.DeepCopyInto(modifiedExtension)
+	modifiedExtension.Status.RuntimeExtensions = []runtimev1.RuntimeExtension{}
+	for _, extension := range response.Extensions {
+		modifiedExtension.Status.RuntimeExtensions = append(
+			modifiedExtension.Status.RuntimeExtensions,
+			runtimev1.RuntimeExtension{
+				Name:           extension.Name + "." + e.ext.Name,
+				Hook:           runtimev1.Hook(extension.Hook),
+				TimeoutSeconds: extension.TimeoutSeconds,
+				FailurePolicy:  (*runtimev1.FailurePolicyType)(extension.FailurePolicy),
+			},
+		)
+	}
+
+	// TODO: Decide if we also want to register the extension inside this function.
+
+	return modifiedExtension, nil
 }
 
-func (s *serviceClient) Invoke(ctx context.Context, in, out runtime.Object) error {
-	serviceOpts := &ServiceOptions{}
-	for _, o := range s.opts {
-		o.ApplyToServiceOptions(serviceOpts)
+func (e *extensionClient) Register() error {
+	return e.client.registry.Add(e.ext)
+}
+
+func (e *extensionClient) Unregister() error {
+	return e.client.registry.Remove(e.ext)
+}
+
+type httpCallOptions struct {
+	catalog       *catalog.Catalog
+	config        runtimev1.ExtensionClientConfig
+	gvh           catalog.GroupVersionHook
+	name          string
+	timeout       time.Duration
+	failurePolicy *runtimev1.FailurePolicyType
+}
+
+func httpCall(ctx context.Context, request, response runtime.Object, opts *httpCallOptions) error {
+	if opts.catalog == nil {
+		return fmt.Errorf("options are invalid. Catalog cannot be nil")
 	}
 
-	gvh, err := s.client.catalog.GroupVersionHook(s.svc)
+	url, err := urlForExtension(opts.config, opts.gvh, opts.name)
 	if err != nil {
 		return err
 	}
 
-	requireConversion := serviceOpts.Version != gvh.Version
+	// Follow-up: do make conversion decision per request and response. Although it might never
+	// happen that the request and response are of different versions within this codebase
+	// lets not make that assumption and make conversion decision per request and response object.
+	requireConversion := opts.gvh.Version != request.GetObjectKind().GroupVersionKind().Version
 
-	inLocal := in
-	outLocal := out
+	requestLocal := request
+	responseLocal := response
+
 	if requireConversion {
-		gvh.Version = serviceOpts.Version
-		// TODO: validate gvh exists
-
-		inLocal, err = s.client.catalog.NewRequest(gvh)
+		var err error
+		requestLocal, err = opts.catalog.NewRequest(opts.gvh)
 		if err != nil {
 			return err
 		}
 
-		if err := s.client.catalog.Convert(in, inLocal, ctx); err != nil {
+		if err := opts.catalog.Convert(request, requestLocal, ctx); err != nil {
 			return err
 		}
 
-		outLocal, err = s.client.catalog.NewResponse(gvh)
+		responseLocal, err = opts.catalog.NewResponse(opts.gvh)
 		if err != nil {
 			return err
 		}
 	}
 
-	if err := s.client.catalog.ValidateRequest(gvh, inLocal); err != nil {
-		return err
+	if err := opts.catalog.ValidateRequest(opts.gvh, requestLocal); err != nil {
+		return errors.Wrapf(err, "request object is invalid for hook %v", opts.gvh)
+	}
+	if err := opts.catalog.ValidateResponse(opts.gvh, responseLocal); err != nil {
+		return errors.Wrapf(err, "response object is invalid for hook %v", opts.gvh)
 	}
 
-	if err := s.client.catalog.ValidateResponse(gvh, outLocal); err != nil {
-		return err
-	}
-
-	postBody, err := json.Marshal(inLocal)
+	postBody, err := json.Marshal(requestLocal)
 	if err != nil {
-		// TODO: wrap err
+		return errors.Wrap(err, "failed to marshall request object")
+	}
+
+	if opts.timeout != 0 {
+		values := url.Query()
+		values.Add("timeout", opts.timeout.String())
+		url.RawQuery = values.Encode()
+
+		ctx, _ = context.WithTimeout(ctx, opts.timeout)
+	}
+
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewBuffer(postBody))
+	if err != nil {
+		return errors.Wrap(err, "failed to create http request")
+	}
+	// TODO: Switch to building a a client to deal with HTTPS,
+	// certificates and protocol.
+	resp, err := http.DefaultClient.Do(httpRequest)
+	// TODO:  handle error in conjunction with FailurePolicy
+	if err != nil {
 		return err
 	}
 
-	// TODO: https + refactor how we are computing the url
-	url := fmt.Sprintf("%s%s", s.client.host, path.Join(s.client.basePath, catalog.GVHToPath(gvh, "TODO: name")))
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody))
-	if err != nil {
-		// TODO: wrap err
-		return err
-	}
 	defer resp.Body.Close()
-
-	// TODO: get unstructured and convert to target gvk.
-	if err := json.NewDecoder(resp.Body).Decode(&outLocal); err != nil {
-		// TODO: wrap err
-		return err
+	if err := json.NewDecoder(resp.Body).Decode(responseLocal); err != nil {
+		return errors.Wrap(err, "failed to decode response")
 	}
 
 	if requireConversion {
-		if err := s.client.catalog.Convert(outLocal, out, ctx); err != nil {
+		if err := opts.catalog.Convert(responseLocal, response, ctx); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func urlForExtension(config runtimev1.ExtensionClientConfig, gvh catalog.GroupVersionHook, name string) (*url.URL, error) {
+	var u *url.URL
+	if config.Service != nil {
+		svc := config.Service
+		host := svc.Name + "." + svc.Namespace + ".svc"
+		if svc.Port != nil {
+			host = net.JoinHostPort(host, strconv.Itoa(int(*svc.Port)))
+		}
+		// TODO: add support for https scheme
+		scheme := "http"
+		u := url.URL{
+			Scheme: scheme,
+			Host:   host,
+		}
+		if svc.Path != nil {
+			u.Path = *svc.Path
+		}
+	} else {
+		if config.URL == nil {
+			return nil, errors.New("at least one of Service and URL should be defined in config")
+		}
+		var err error
+		u, err = url.Parse(*config.URL)
+		if err != nil {
+			return nil, errors.Wrap(err, "URL in config is invalid")
+		}
+	}
+	u.Path = path.Join(u.Path, catalog.GVHToPath(gvh, name))
+	return u, nil
 }

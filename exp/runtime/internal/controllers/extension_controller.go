@@ -181,8 +181,8 @@ func (r *Reconciler) syncRegistry(ctx context.Context) (reterr error) {
 	return nil
 }
 
-func (r Reconciler) discoverRuntimeExtensions(_ context.Context, extension *runtimev1.Extension) error {
-	extensions, err := r.RuntimeClient.Extension(extension).Discover()
+func (r Reconciler) discoverRuntimeExtensions(ctx context.Context, extension *runtimev1.Extension) error {
+	ext, err := r.RuntimeClient.Extension(extension).Discover(ctx)
 	if err != nil {
 		// If discovery fails we mark the condition as untrue and return. Previous registrations are not removed.
 		// what should we do about intermittent errors? should the registry know when each individual extension is not discovered?
@@ -190,7 +190,9 @@ func (r Reconciler) discoverRuntimeExtensions(_ context.Context, extension *runt
 		conditions.MarkFalse(extension, runtimev1.RuntimeExtensionDiscovered, "DiscoveryFailed", clusterv1.ConditionSeverityError, "error in discovery: %v", err)
 		return err
 	}
-	extension.Status.RuntimeExtensions = extensions
+	if err := r.RuntimeClient.Extension(ext).Register(); err != nil {
+		return errors.Wrap(err, "failed to register extension")
+	}
 
 	return nil
 }
