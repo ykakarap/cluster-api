@@ -309,19 +309,20 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterCacheReconciler")
 		os.Exit(1)
 	}
-	runtimeClient := runtimeclient.New(runtimeclient.Options{
-		Catalog:  catalog,
-		Registry: registry.Extensions(),
-	})
+
 	if feature.Gates.Enabled(feature.ClusterTopology) {
+		var runtimeClient runtimeclient.Client
 		if feature.Gates.Enabled(feature.RuntimeSDK) {
 			registry := registry.Extensions()
+			runtimeClient = runtimeclient.New(runtimeclient.Options{
+				Catalog:  catalog,
+				Registry: registry,
+			})
 			if err = (&runtimecontroller.ExtensionReconciler{
 				Client:           mgr.GetClient(),
 				APIReader:        mgr.GetAPIReader(),
 				RuntimeClient:    runtimeClient,
 				WatchFilterValue: watchFilterValue,
-				Registry:         registry,
 			}).SetupWithManager(ctx, mgr, concurrency(extensionConcurrency)); err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "Extension")
 				os.Exit(1)

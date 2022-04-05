@@ -285,7 +285,20 @@ rules:
 - apiGroups:
   - runtime.cluster.x-k8s.io
   resources:
-  - extension
+  - extensions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - runtime.cluster.x-k8s.io
+  resources:
+  - extensions
+  - extensions/status
   verbs:
   - create
   - delete

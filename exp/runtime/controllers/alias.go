@@ -25,7 +25,6 @@ import (
 
 	extensions "sigs.k8s.io/cluster-api/exp/runtime/internal/controllers"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
-	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 )
 
 // ExtensionReconciler reconciles an Extension object.
@@ -33,7 +32,6 @@ type ExtensionReconciler struct {
 	Client        client.Client
 	APIReader     client.Reader
 	RuntimeClient runtimeclient.Client
-	Registry      registry.ExtensionRegistry
 
 	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
@@ -44,5 +42,6 @@ func (r *ExtensionReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Man
 		Client:           r.Client,
 		RuntimeClient:    r.RuntimeClient,
 		WatchFilterValue: r.WatchFilterValue,
+		APIReader:        r.APIReader,
 	}).SetupWithManager(ctx, mgr, options)
 }

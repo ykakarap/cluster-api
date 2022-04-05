@@ -100,7 +100,7 @@ type HookClient interface {
 	// CallAll calls all the extension registered for the hook.
 	CallAll(ctx context.Context, request, response runtime.Object) error
 
-	// CallExtension calls only the extension with the given name.
+	// Call calls only the extension with the given name.
 	Call(ctx context.Context, name string, request, response runtime.Object) error
 }
 
@@ -163,6 +163,8 @@ func (h *hookClient) Call(ctx context.Context, name string, request, response ru
 	return nil
 }
 
+// ExtensionClient
+// TODO: Discuss API here. Decide whether to use a builder pattern or to pass the extension as a function parameter.
 type ExtensionClient interface {
 	// Discover makes the discovery call on the extension and updates the runtime extensions
 	// information in the extension status.
@@ -201,6 +203,7 @@ func (e *extensionClient) Discover(ctx context.Context) (*runtimev1.Extension, e
 		gvh:     gvh,
 		timeout: defaultDiscoveryTimeout,
 	}
+
 	if err := httpCall(ctx, request, response, opts); err != nil {
 		return nil, errors.Wrap(err, "failed to call the discovery extension")
 	}
@@ -325,6 +328,7 @@ func httpCall(ctx context.Context, request, response runtime.Object, opts *httpC
 
 func urlForExtension(config runtimev1.ExtensionClientConfig, gvh catalog.GroupVersionHook, name string) (*url.URL, error) {
 	var u *url.URL
+	// TODO: Add additional validation here - webhook should make this safe, but for now it might be good to do url validation in here.
 	if config.Service != nil {
 		svc := config.Service
 		host := svc.Name + "." + svc.Namespace + ".svc"

@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
@@ -71,7 +72,7 @@ type DiscoveryHookResponse struct {
 	// A human-readable description of the status of the call.
 	Message string `json:"message"`
 
-	Extensions []RuntimeExtension `json:"extensions"`
+	Extensions []runtimev1.RuntimeExtension `json:"extensions"`
 }
 
 func Discovery(*DiscoveryHookRequest, *DiscoveryHookResponse) {}
