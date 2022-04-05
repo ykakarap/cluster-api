@@ -71,7 +71,7 @@ type RuntimeExtensionRegistration struct {
 
 	ClientConfig   runtimev1.ExtensionClientConfig
 	TimeoutSeconds *int32
-	FailurePolicy  *runtimev1.FailurePolicyType
+	FailurePolicy  *runtimev1.FailurePolicy
 }
 
 type extensionRegistry struct {

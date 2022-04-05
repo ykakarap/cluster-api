@@ -18,19 +18,20 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	runtimev1 "sigs.k8s.io/cluster-api/exp/runtime/api/v1beta1"
 
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
 
-type FailurePolicyType string
+type FailurePolicy string
 
 const (
-	// Ignore means that an error calling the extension is ignored.
-	Ignore FailurePolicyType = "Ignore"
+	// FailurePolicyIgnore means that an error calling the extension is ignored.
+	FailurePolicyIgnore FailurePolicy = "Ignore"
 
-	// Fail means that an error calling the extension causes the admission to fail.
-	Fail FailurePolicyType = "Fail"
+	// FailurePolicyFail means that an error calling the extension causes the admission to fail.
+	FailurePolicyFail FailurePolicy = "Fail"
 )
 
 type Hook struct {
@@ -52,7 +53,7 @@ type RuntimeExtension struct {
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
 
 	// FailurePolicy defines how failures in calls to the Hook should be handled by a client.
-	FailurePolicy *FailurePolicyType `json:"failurePolicy,omitempty"`
+	FailurePolicy *FailurePolicy `json:"failurePolicy,omitempty"`
 }
 
 // DiscoveryHookRequest foo bar baz.

@@ -35,6 +35,8 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
+	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/scope"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
@@ -132,6 +134,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Re
 	}
 	cluster.APIVersion = clusterv1.GroupVersion.String()
 	cluster.Kind = "Cluster"
+
+	// TODO: just poc code
+
+	if feature.Gates.Enabled(feature.RuntimeSDK) {
+		request := &v1alpha1.BeforeClusterUpgradeRequest{
+			Cluster: *cluster,
+		}
+		response := &v1alpha1.BlockingResponse{}
+
+		err := r.RuntimeClient.Hook(v1alpha1.BeforeClusterUpgrade).CallAll(ctx, request, response)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		log.Info(fmt.Sprintf("BeforeClusterUpgrade request worked: status: %v, message: %v, retryAfterSeconds: %v", response.Status, response.Message, response.RetryAfterSeconds))
+	}
 
 	// Return early, if the Cluster does not use a managed topology.
 	// NOTE: We're already filtering events, but this is a safeguard for cases like e.g. when

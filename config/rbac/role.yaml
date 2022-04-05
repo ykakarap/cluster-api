@@ -286,18 +286,6 @@ rules:
   - runtime.cluster.x-k8s.io
   resources:
   - extensions
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - runtime.cluster.x-k8s.io
-  resources:
-  - extensions
   - extensions/status
   verbs:
   - create

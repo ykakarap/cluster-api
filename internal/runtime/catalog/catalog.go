@@ -341,5 +341,5 @@ func GVHToPath(gvh GroupVersionHook, name string) string {
 	if name == "" {
 		return fmt.Sprintf("/%s/%s/%s", gvh.Group, gvh.Version, strings.ToLower(gvh.Hook))
 	}
-	return fmt.Sprintf("/%s/%s/%s/%s", gvh.Group, gvh.Version, strings.ToLower(gvh.Hook), name)
+	return fmt.Sprintf("/%s/%s/%s/%s", gvh.Group, gvh.Version, strings.ToLower(gvh.Hook), strings.ToLower(name))
 }

@@ -63,7 +63,6 @@ import (
 	"sigs.k8s.io/cluster-api/feature"
 	runtimecatalog "sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
-	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 	"sigs.k8s.io/cluster-api/version"
 	"sigs.k8s.io/cluster-api/webhooks"
 )
@@ -313,10 +312,8 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	if feature.Gates.Enabled(feature.ClusterTopology) {
 		var runtimeClient runtimeclient.Client
 		if feature.Gates.Enabled(feature.RuntimeSDK) {
-			registry := registry.Extensions()
 			runtimeClient = runtimeclient.New(runtimeclient.Options{
 				Catalog:  catalog,
-				Registry: registry,
 			})
 			if err = (&runtimecontroller.ExtensionReconciler{
 				Client:           mgr.GetClient(),

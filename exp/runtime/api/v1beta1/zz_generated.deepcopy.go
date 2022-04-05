@@ -192,7 +192,7 @@ func (in *RuntimeExtension) DeepCopyInto(out *RuntimeExtension) {
 	}
 	if in.FailurePolicy != nil {
 		in, out := &in.FailurePolicy, &out.FailurePolicy
-		*out = new(FailurePolicyType)
+		*out = new(FailurePolicy)
 		**out = **in
 	}
 }

@@ -28,16 +28,21 @@ import (
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 )
 
-type F interface{}
+type Handler interface{}
+
+type GroupVersionHookName struct {
+	catalog.GroupVersionHook
+	Name string
+}
 
 type HandlerBuilder struct {
-	catalog *catalog.Catalog
-	svcToF  map[catalog.Hook]F
+	catalog       *catalog.Catalog
+	hookToHandler map[GroupVersionHookName]Handler
 }
 
 func NewHandlerBuilder() *HandlerBuilder {
 	return &HandlerBuilder{
-		svcToF: map[catalog.Hook]F{},
+		hookToHandler: map[GroupVersionHookName]Handler{},
 	}
 }
 
@@ -46,8 +51,21 @@ func (bld *HandlerBuilder) WithCatalog(c *catalog.Catalog) *HandlerBuilder {
 	return bld
 }
 
-func (bld *HandlerBuilder) AddService(svc catalog.Hook, f F) *HandlerBuilder {
-	bld.svcToF[svc] = f
+func (bld *HandlerBuilder) AddDiscovery(hook catalog.Hook, h Handler) *HandlerBuilder {
+	return bld.AddExtension(hook, "", h)
+}
+
+func (bld *HandlerBuilder) AddExtension(hook catalog.Hook, name string, h Handler) *HandlerBuilder {
+	gvh, err := bld.catalog.GroupVersionHook(hook)
+	if err != nil {
+		panic(errors.Wrapf(err, "hook does not exist in catalog"))
+	}
+	gvhn := GroupVersionHookName{
+		GroupVersionHook: gvh,
+		Name:             name,
+	}
+
+	bld.hookToHandler[gvhn] = h
 	return bld
 }
 
@@ -58,25 +76,23 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 
 	r := mux.NewRouter()
 
-	for svc, f := range bld.svcToF {
+	for g, h := range bld.hookToHandler {
+		gvhn := g
+		handler := h
 
-		gvh, err := bld.catalog.GroupVersionHook(svc)
+		in, err := bld.catalog.NewRequest(gvhn.GroupVersionHook)
 		if err != nil {
 			return nil, err
 		}
 
-		in, err := bld.catalog.NewRequest(gvh)
+		out, err := bld.catalog.NewResponse(gvhn.GroupVersionHook)
 		if err != nil {
 			return nil, err
 		}
 
-		out, err := bld.catalog.NewResponse(gvh)
-		if err != nil {
-			return nil, err
-		}
-
+		// TODO: please use catalog.ValidateRequest/Response.
 		// TODO: add context
-		if err := validateF(f, in, out); err != nil {
+		if err := validateF(handler, in, out); err != nil {
 			return nil, err
 		}
 
@@ -87,16 +103,16 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 				// TODO: handle error
 			}
 
-			in, err := bld.catalog.NewRequest(gvh)
+			request, err := bld.catalog.NewRequest(gvhn.GroupVersionHook)
 			if err != nil {
 				// TODO: handle error
 			}
 
-			if err := json.Unmarshal(reqBody, in); err != nil {
+			if err := json.Unmarshal(reqBody, request); err != nil {
 				// TODO: handle error
 			}
 
-			out, err := bld.catalog.NewResponse(gvh)
+			response, err := bld.catalog.NewResponse(gvhn.GroupVersionHook)
 			if err != nil {
 				// TODO: handle error
 			}
@@ -104,17 +120,17 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 			// TODO: build new context with correlation ID and pass it to the call
 			// TODO: context with Cancel to enforce timeout? enforce timeout on caller side? both?
 
-			v := reflect.ValueOf(f)
+			v := reflect.ValueOf(handler)
 			ret := v.Call([]reflect.Value{
-				reflect.ValueOf(in),
-				reflect.ValueOf(out),
+				reflect.ValueOf(request),
+				reflect.ValueOf(response),
 			})
 
 			if !ret[0].IsNil() {
 				// TODO: handle error
 			}
 
-			respBody, err := json.Marshal(out)
+			respBody, err := json.Marshal(response)
 			if err != nil {
 				// TODO: handle error
 			}
@@ -123,7 +139,7 @@ func (bld *HandlerBuilder) Build() (http.Handler, error) {
 			w.Write(respBody)
 		}
 
-		r.HandleFunc(catalog.GVHToPath(gvh, "TODO: name"), fWrapper).Methods("POST")
+		r.HandleFunc(catalog.GVHToPath(gvhn.GroupVersionHook, gvhn.Name), fWrapper).Methods("POST")
 	}
 
 	return r, nil

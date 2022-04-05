@@ -42,14 +42,17 @@ const defaultDiscoveryTimeout = 10 * time.Second
 
 // Options are creation options for a Client.
 type Options struct {
-	Catalog  *catalog.Catalog
-	Registry registry.ExtensionRegistry
+	Catalog *catalog.Catalog
+	// TOOD: Given that the registry is a singleton right now it doesn't make sense
+	// to have an option for the registry here.
+	// We can reconsider once we decided if registry should really be a singleton.
+	// Registry registry.ExtensionRegistry
 }
 
 func New(options Options) Client {
 	return &client{
 		catalog:  options.Catalog,
-		registry: options.Registry,
+		registry: registry.Extensions(),
 	}
 }
 
@@ -137,7 +140,7 @@ func (h *hookClient) CallAll(ctx context.Context, request, response runtime.Obje
 }
 
 func (h *hookClient) aggregateResponses(list []runtime.Object, into runtime.Object) {
-	panic("implement a response aggregation mechanism")
+	// TODO; panic("implement a response aggregation mechanism")
 }
 
 func (h *hookClient) Call(ctx context.Context, name string, request, response runtime.Object) error {
@@ -218,7 +221,7 @@ func (e *extensionClient) Discover(ctx context.Context) (*runtimev1.Extension, e
 				Name:           extension.Name + "." + e.ext.Name,
 				Hook:           runtimev1.Hook(extension.Hook),
 				TimeoutSeconds: extension.TimeoutSeconds,
-				FailurePolicy:  (*runtimev1.FailurePolicyType)(extension.FailurePolicy),
+				FailurePolicy:  (*runtimev1.FailurePolicy)(extension.FailurePolicy),
 			},
 		)
 	}
@@ -242,7 +245,7 @@ type httpCallOptions struct {
 	gvh           catalog.GroupVersionHook
 	name          string
 	timeout       time.Duration
-	failurePolicy *runtimev1.FailurePolicyType
+	failurePolicy *runtimev1.FailurePolicy
 }
 
 func httpCall(ctx context.Context, request, response runtime.Object, opts *httpCallOptions) error {

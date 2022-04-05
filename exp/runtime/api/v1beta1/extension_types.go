@@ -125,7 +125,7 @@ type RuntimeExtension struct {
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
 
 	// FailurePolicy defines how failures in calls to the Hook should be handled by a client.
-	FailurePolicy *FailurePolicyType `json:"failurePolicy,omitempty"`
+	FailurePolicy *FailurePolicy `json:"failurePolicy,omitempty"`
 }
 
 // Hook defines the runtime event when the RuntimeExtension is called.
@@ -137,15 +137,15 @@ type Hook struct {
 	Name string `json:"name"`
 }
 
-// FailurePolicyType specifies a failure policy that defines how unrecognized errors from the admission endpoint are handled.
-type FailurePolicyType string
+// FailurePolicy specifies a failure policy that defines how unrecognized errors from the admission endpoint are handled.
+type FailurePolicy string
 
 const (
-	// Ignore means that an error calling the extension is ignored.
-	Ignore FailurePolicyType = "Ignore"
+	// FailurePolicyIgnore means that an error calling the extension is ignored.
+	FailurePolicyIgnore FailurePolicy = "Ignore"
 
-	// Fail means that an error calling the extension causes the admission to fail.
-	Fail FailurePolicyType = "Fail"
+	// FailurePolicyFail means that an error calling the extension causes the admission to fail.
+	FailurePolicyFail FailurePolicy = "Fail"
 )
 
 // ANCHOR_END: ExtensionStatus

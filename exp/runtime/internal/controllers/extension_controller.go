@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
-// +kubebuilder:rbac:groups=runtime.cluster.x-k8s.io,resources=extensions,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=runtime.cluster.x-k8s.io,resources=extensions;extensions/status,verbs=get;list;watch;create;update;patch;delete
 
 // Reconciler reconciles an Extension object.

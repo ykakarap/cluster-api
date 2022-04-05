@@ -8,23 +8,25 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha2"
+	"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	catalogHTTP "sigs.k8s.io/cluster-api/internal/runtime/server"
 )
 
-// go run rte/test/rte-implementation-v1alpha2/main.go
+// go run rte/test/rte-implementation-v1alpha3/main.go
 
 var c = catalog.New()
 
 func init() {
-	_ = v1alpha2.AddToCatalog(c)
+	v1alpha3.AddToCatalog(c)
 }
 
 func main() {
 	ctx := ctrl.SetupSignalHandler()
 
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", "8082"))
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", "8083"))
 	if err != nil {
 		panic(err)
 	}
@@ -59,8 +61,8 @@ func main() {
 	}
 }
 
-func doOperation1(in *v1alpha2.DiscoveryHookRequest, out *v1alpha2.DiscoveryHookResponse) error {
+func doOperation1(in *v1alpha1.DiscoveryHookRequest, out *v1alpha1.DiscoveryHookResponse) error {
 	fmt.Println("Discovery/v1alpha2 called")
-	out.Message = fmt.Sprintf("Discovery implementation version v1alpha2 - first: %d, second: %s", in.First, in.Second)
+	out.Message = fmt.Sprintf("Discovery implementation version v1alpha2")
 	return nil
 }
