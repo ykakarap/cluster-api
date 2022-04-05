@@ -7,6 +7,7 @@ Start dev-env + controller:
 ./hack/kind-install-for-capd.sh
 tilt up
 
+controller=capi
 mkdir -p /tmp/k8s-webhook-server-${controller}
 k -n ${controller}-system get secret ${controller}-webhook-service-cert -o json | jq '.data."tls.crt"' -r | base64 -d > /tmp/k8s-webhook-server-${controller}/tls.crt
 k -n ${controller}-system get secret ${controller}-webhook-service-cert -o json | jq '.data."tls.key"' -r | base64 -d > /tmp/k8s-webhook-server-${controller}/tls.key
