@@ -313,7 +313,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		var runtimeClient runtimeclient.Client
 		if feature.Gates.Enabled(feature.RuntimeSDK) {
 			runtimeClient = runtimeclient.New(runtimeclient.Options{
-				Catalog:  catalog,
+				Catalog: catalog,
 			})
 			if err = (&runtimecontroller.ExtensionReconciler{
 				Client:           mgr.GetClient(),

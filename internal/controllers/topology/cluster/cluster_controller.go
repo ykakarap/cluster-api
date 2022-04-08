@@ -141,7 +141,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Re
 		request := &v1alpha1.BeforeClusterUpgradeRequest{
 			Cluster: *cluster,
 		}
-		response := &v1alpha1.BlockingResponse{}
+		response := &v1alpha1.BeforeClusterUpgradeResponse{}
 
 		err := r.RuntimeClient.Hook(v1alpha1.BeforeClusterUpgrade).CallAll(ctx, request, response)
 		if err != nil {

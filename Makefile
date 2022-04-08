@@ -881,4 +881,4 @@ $(KPROMO):
 $(GOLANGCI_LINT): .github/workflows/golangci-lint.yml # Download golangci-lint using hack script into tools folder.
 	hack/ensure-golangci-lint.sh \
 		-b $(TOOLS_BIN_DIR) \
-		$(shell cat .github/workflows/golangci-lint.yml | grep version | sed 's/.*version: //')
+		$(shell cat .github/workflows/golangci-lint.yml | grep '^\s*version' | sed 's/.*version: //')

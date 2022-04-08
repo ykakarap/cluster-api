@@ -54,22 +54,7 @@ func schema_runtime_hooks_api_v1alpha2_DiscoveryHookRequest(ref common.Reference
 							Format:      "",
 						},
 					},
-					"second": {
-						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
-						},
-					},
-					"first": {
-						SchemaProps: spec.SchemaProps{
-							Default: 0,
-							Type:    []string{"integer"},
-							Format:  "int32",
-						},
-					},
 				},
-				Required: []string{"second", "first"},
 			},
 		},
 	}

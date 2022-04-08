@@ -28,25 +28,31 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterClusterUpgradeRequest":          schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneInitializedRequest": schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneUpgradeRequest":     schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterCreateRequest":          schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterDeleteRequest":          schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterUpgradeRequest":         schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BlockingResponse":                    schema_runtime_hooks_api_v1alpha1_BlockingResponse(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookRequest":                schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookResponse":               schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesRequest":              schema_runtime_hooks_api_v1alpha1_GeneratePatchesRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesRequestItem":          schema_runtime_hooks_api_v1alpha1_GeneratePatchesRequestItem(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesResponse":             schema_runtime_hooks_api_v1alpha1_GeneratePatchesResponse(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesResponseItem":         schema_runtime_hooks_api_v1alpha1_GeneratePatchesResponseItem(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.HolderReference":                     schema_runtime_hooks_api_v1alpha1_HolderReference(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.NonBlockingResponse":                 schema_runtime_hooks_api_v1alpha1_NonBlockingResponse(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ValidateTopologyRequest":             schema_runtime_hooks_api_v1alpha1_ValidateTopologyRequest(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ValidateTopologyRequestItem":         schema_runtime_hooks_api_v1alpha1_ValidateTopologyRequestItem(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ValidateTopologyResponse":            schema_runtime_hooks_api_v1alpha1_ValidateTopologyResponse(ref),
-		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.Variable":                            schema_runtime_hooks_api_v1alpha1_Variable(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterClusterUpgradeRequest":           schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterClusterUpgradeResponse":          schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneInitializedRequest":  schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneInitializedResponse": schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneUpgradeRequest":      schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.AfterControlPlaneUpgradeResponse":     schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterCreateRequest":           schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterCreateResponse":          schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterDeleteRequest":           schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterDeleteResponse":          schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterUpgradeRequest":          schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.BeforeClusterUpgradeResponse":         schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookRequest":                 schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.DiscoveryHookResponse":                schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesRequest":               schema_runtime_hooks_api_v1alpha1_GeneratePatchesRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesRequestItem":           schema_runtime_hooks_api_v1alpha1_GeneratePatchesRequestItem(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesResponse":              schema_runtime_hooks_api_v1alpha1_GeneratePatchesResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.GeneratePatchesResponseItem":          schema_runtime_hooks_api_v1alpha1_GeneratePatchesResponseItem(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.HolderReference":                      schema_runtime_hooks_api_v1alpha1_HolderReference(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.Hook":                                 schema_runtime_hooks_api_v1alpha1_Hook(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.RuntimeExtension":                     schema_runtime_hooks_api_v1alpha1_RuntimeExtension(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ValidateTopologyRequest":              schema_runtime_hooks_api_v1alpha1_ValidateTopologyRequest(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ValidateTopologyRequestItem":          schema_runtime_hooks_api_v1alpha1_ValidateTopologyRequestItem(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.ValidateTopologyResponse":             schema_runtime_hooks_api_v1alpha1_ValidateTopologyResponse(ref),
+		"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.Variable":                             schema_runtime_hooks_api_v1alpha1_Variable(ref),
 	}
 }
 
@@ -95,6 +101,50 @@ func schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeRequest(ref common.Ref
 	}
 }
 
+func schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "AfterClusterUpgradeResponse is the response of AfterClusterUpgrade hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Failure", "Success"}},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"status", "message"},
+			},
+		},
+	}
+}
+
 func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -129,6 +179,50 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedRequest(ref c
 		},
 		Dependencies: []string{
 			"sigs.k8s.io/cluster-api/api/v1beta1.Cluster"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "AfterControlPlaneInitializedResponse is the response of AfterControlPlaneInitialized hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Failure", "Success"}},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"status", "message"},
+			},
+		},
 	}
 }
 
@@ -177,6 +271,58 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeRequest(ref commo
 	}
 }
 
+func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "AfterControlPlaneUpgradeResponse is the response of AfterControlPlaneUpgrade hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Failure", "Success"}},
+					},
+					"retryAfterSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryAfterSeconds when set to a non-zero signifies that the hook needs to be retried at a future time.",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"status", "retryAfterSeconds", "message"},
+			},
+		},
+	}
+}
+
 func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -214,6 +360,58 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateRequest(ref common.Ref
 	}
 }
 
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BeforeClusterCreateResponse is the response of BeforeClusterCreate hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Failure", "Success"}},
+					},
+					"retryAfterSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryAfterSeconds when set to a non-zero signifies that the hook will be called again at a future time.",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"status", "retryAfterSeconds", "message"},
+			},
+		},
+	}
+}
+
 func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -248,6 +446,58 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteRequest(ref common.Ref
 		},
 		Dependencies: []string{
 			"sigs.k8s.io/cluster-api/api/v1beta1.Cluster"},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BeforeClusterDeleteResponse is the response of BeforeClusterDelete hook.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Failure", "Success"}},
+					},
+					"retryAfterSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryAfterSeconds when set to a non-zero signifies that the hook needs to be retried at a future time.",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"status", "retryAfterSeconds", "message"},
+			},
+		},
 	}
 }
 
@@ -304,11 +554,11 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeRequest(ref common.Re
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_BlockingResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "BlockingResponse is the response of a blocking lifecycle hook.",
+				Description: "BeforeClusterUpgradeResponse is the response of BeforeClusterUpgrade hook.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -377,22 +627,7 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryHookRequest(ref common.Reference
 							Format:      "",
 						},
 					},
-					"second": {
-						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
-						},
-					},
-					"first": {
-						SchemaProps: spec.SchemaProps{
-							Default: 0,
-							Type:    []string{"integer"},
-							Format:  "int32",
-						},
-					},
 				},
-				Required: []string{"second", "first"},
 			},
 		},
 	}
@@ -419,17 +654,41 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryHookResponse(ref common.Referenc
 							Format:      "",
 						},
 					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Failure", "Success"}},
+					},
 					"message": {
 						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
+							Description: "A human-readable description of the status of the call.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"extensions": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.RuntimeExtension"),
+									},
+								},
+							},
 						},
 					},
 				},
-				Required: []string{"message"},
+				Required: []string{"status", "message", "extensions"},
 			},
 		},
+		Dependencies: []string{
+			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.RuntimeExtension"},
 	}
 }
 
@@ -693,47 +952,76 @@ func schema_runtime_hooks_api_v1alpha1_HolderReference(ref common.ReferenceCallb
 	}
 }
 
-func schema_runtime_hooks_api_v1alpha1_NonBlockingResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_runtime_hooks_api_v1alpha1_Hook(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "NonBlockingResponse is the response of a non-blocking lifecycle hook.",
-				Type:        []string{"object"},
+				Type: []string{"object"},
 				Properties: map[string]spec.Schema{
-					"kind": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"apiVersion": {
 						SchemaProps: spec.SchemaProps{
-							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
-					"status": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"`\n - `\"Success\"`",
+							Description: "APIVersion is the Version of the Hook",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
-							Enum:        []interface{}{"Failure", "Success"}},
+						},
 					},
-					"message": {
+					"name": {
 						SchemaProps: spec.SchemaProps{
-							Description: "A human-readable description of the status of the call.",
+							Description: "Name is the name of the hook",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 				},
-				Required: []string{"status", "message"},
+				Required: []string{"apiVersion", "name"},
 			},
 		},
+	}
+}
+
+func schema_runtime_hooks_api_v1alpha1_RuntimeExtension(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the RuntimeExtension",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"hook": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Hook defines the specific runtime event for which this RuntimeExtension calls.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.Hook"),
+						},
+					},
+					"timeoutSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Description: "TimeoutSeconds defines the timeout duration for client calls to the Hook",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"failurePolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "FailurePolicy defines how failures in calls to the Hook should be handled by a client.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"name", "hook"},
+			},
+		},
+		Dependencies: []string{
+			"sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1.Hook"},
 	}
 }
 

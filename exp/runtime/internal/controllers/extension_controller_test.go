@@ -22,7 +22,6 @@ import (
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/internal/runtime/catalog"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
-	"sigs.k8s.io/cluster-api/internal/runtime/registry"
 )
 
 func TestExtensionReconciler_Reconcile(t *testing.T) {
@@ -243,10 +242,10 @@ func TestExtensionReconciler_Reconcile(t *testing.T) {
 				TypeMeta: metav1.TypeMeta{},
 				Status:   "",
 				Message:  "what a message",
-				Extensions: []runtimev1.RuntimeExtension{
+				Extensions: []hooksv1.RuntimeExtension{
 					{
 						Name: "first",
-						Hook: runtimev1.Hook{
+						Hook: hooksv1.Hook{
 							Name:       "first",
 							APIVersion: "v1alpha1",
 						},
@@ -275,8 +274,7 @@ func TestExtensionReconciler_Reconcile(t *testing.T) {
 			Client:    env.GetClient(),
 			APIReader: env.GetAPIReader(),
 			RuntimeClient: runtimeclient.New(runtimeclient.Options{
-				Catalog:  cat,
-				Registry: registry.Extensions(),
+				Catalog: cat,
 			}),
 		}
 
