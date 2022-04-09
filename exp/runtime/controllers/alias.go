@@ -29,8 +29,8 @@ import (
 
 // ExtensionConfigReconciler reconciles an ExtensionConfig object.
 type ExtensionConfigReconciler struct {
-	Client    client.Client
-	APIReader client.Reader
+	APIReader     client.Reader
+	Client        client.Client
 	RuntimeClient runtimeclient.Client
 
 	// WatchFilterValue is the label value used to filter events prior to reconciliation.

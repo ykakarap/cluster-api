@@ -16,6 +16,10 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"fmt"
+)
+
 // ResponseStatus represents the status of the hook response.
 // +enum
 type ResponseStatus string
@@ -25,3 +29,17 @@ const (
 
 	ResponseStatusFailure ResponseStatus = "Failure"
 )
+
+var _ error = &ErrExtensionFailure{}
+
+type ErrExtensionFailure struct {
+	ExtensionName string
+	Message       string
+}
+
+func (e *ErrExtensionFailure) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("extension %q failed: %s", e.ExtensionName, e.Message)
+	}
+	return fmt.Sprintf("extension %q failed", e.ExtensionName)
+}

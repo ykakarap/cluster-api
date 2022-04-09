@@ -103,7 +103,7 @@ func (c *client) Extension(ext *runtimev1.ExtensionConfig) ExtensionClient {
 
 type HookClient interface {
 	// CallAll calls all the extension registered for the hook.
-	CallAll(ctx context.Context, request, response runtime.Object) error
+	CallAll(ctx context.Context, request runtime.Object, response runtimehooksv1.AggregatableResponse) (runtimehooksv1.HookResponseSummary, error)
 
 	// Call calls only the extension with the given name.
 	Call(ctx context.Context, name string, request, response runtime.Object) error
@@ -116,33 +116,32 @@ type hookClient struct {
 	hook   catalog.Hook
 }
 
-func (h *hookClient) CallAll(ctx context.Context, request, response runtime.Object) error {
+// TODO: Using an interface that is in hooksv1alpha1 means now the client has a tight dependency with the api version.
+// Same goes for the Call function while using the GenericExtensionResponse and the `ResponseStatusSuccess`.
+func (h *hookClient) CallAll(ctx context.Context, request runtime.Object, response runtimehooksv1.AggregatableResponse) (runtimehooksv1.HookResponseSummary, error) {
 	gvh, err := h.client.catalog.GroupVersionHook(h.hook)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registrations, err := h.client.registry.List(gvh)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	responses := []runtime.Object{}
+	responses := []*runtimehooksv1.ExtensionResponse{}
 	for _, registration := range registrations {
-		response, err := h.client.catalog.NewResponse(gvh)
+		tmpResponse, err := h.client.catalog.NewResponse(gvh)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		// Follow-up: Call all extensions irrespective of error. Don't short-circuit on an error.
-		if err := h.Call(ctx, registration.Name, request, response); err != nil {
-			return err
-		}
-		responses = append(responses, response)
+		err = h.Call(ctx, registration.Name, request, tmpResponse)
+		responses = append(responses, &runtimehooksv1.ExtensionResponse{
+			ExtensionName: registration.Name,
+			Response:      tmpResponse,
+			Error:         errors.Wrapf(err, "extension %v failed", registration.Name),
+			FailurePolicy: registration.FailurePolicy,
+		})
 	}
-	h.aggregateResponses(responses, response)
-	return nil
-}
-
-func (h *hookClient) aggregateResponses(list []runtime.Object, into runtime.Object) {
-	// TODO; panic("implement a response aggregation mechanism")
+	return response.Aggregate(responses)
 }
 
 func (h *hookClient) Call(ctx context.Context, name string, request, response runtime.Object) error {
@@ -162,8 +161,20 @@ func (h *hookClient) Call(ctx context.Context, name string, request, response ru
 		timeout:       timeoutDuration,
 		failurePolicy: registration.FailurePolicy,
 	}
-	if err := httpCall(ctx, request, response, opts); err != nil {
-		return errors.Wrapf(err, "failed to call extension '%s'", name)
+	err = httpCall(ctx, request, response, opts)
+	if err != nil {
+		return errors.Wrap(err, "failed to call extension")
+	}
+	failure, err := runtimehooksv1.IsFailure(response)
+	if err != nil {
+		return errors.Wrap(err, "failed to process response")
+	}
+	if failure {
+		msg, err := runtimehooksv1.GetMessage(response)
+		if err != nil {
+			return errors.Wrap(err, "failed to process response")
+		}
+		return &runtimehooksv1.ErrExtensionFailure{ExtensionName: name, Message: msg}
 	}
 	return nil
 }

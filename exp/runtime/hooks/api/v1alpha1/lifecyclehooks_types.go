@@ -34,6 +34,8 @@ type BeforeClusterCreateRequest struct {
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
+var _ AggregatableResponse = &BeforeClusterCreateResponse{}
+
 // BeforeClusterCreateResponse is the response of BeforeClusterCreate hook.
 // +kubebuilder:object:root=true
 type BeforeClusterCreateResponse struct {
@@ -50,6 +52,13 @@ type BeforeClusterCreateResponse struct {
 	Message string `json:"message"`
 }
 
+func (r *BeforeClusterCreateResponse) Aggregate(responses []*ExtensionResponse) (HookResponseSummary, error) {
+	if err := aggregateRetryAfterSeconds(r, responses); err != nil {
+		return nil, err
+	}
+	return aggregateExtensionResponses(r, responses)
+}
+
 func BeforeClusterCreate(*BeforeClusterCreateRequest, *BeforeClusterCreateResponse) {}
 
 // AfterControlPlaneInitialized Hook
@@ -63,6 +72,8 @@ type AfterControlPlaneInitializedRequest struct {
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
+var _ AggregatableResponse = &AfterControlPlaneInitializedResponse{}
+
 // AfterControlPlaneInitializedResponse is the response of AfterControlPlaneInitialized hook.
 // +kubebuilder:object:root=true
 type AfterControlPlaneInitializedResponse struct {
@@ -73,6 +84,10 @@ type AfterControlPlaneInitializedResponse struct {
 
 	// A human-readable description of the status of the call.
 	Message string `json:"message"`
+}
+
+func (r *AfterControlPlaneInitializedResponse) Aggregate(responses []*ExtensionResponse) (HookResponseSummary, error) {
+	return aggregateExtensionResponses(r, responses)
 }
 
 func AfterControlPlaneInitialized(*AfterControlPlaneInitializedRequest, *AfterControlPlaneInitializedResponse) {
@@ -94,6 +109,8 @@ type BeforeClusterUpgradeRequest struct {
 	ToKubernetesVersion string `json:"toKubernetesVersion"`
 }
 
+var _ AggregatableResponse = &BeforeClusterUpgradeResponse{}
+
 // BeforeClusterUpgradeResponse is the response of BeforeClusterUpgrade hook.
 // +kubebuilder:object:root=true
 type BeforeClusterUpgradeResponse struct {
@@ -108,6 +125,13 @@ type BeforeClusterUpgradeResponse struct {
 
 	// A human-readable description of the status of the call.
 	Message string `json:"message"`
+}
+
+func (r *BeforeClusterUpgradeResponse) Aggregate(responses []*ExtensionResponse) (HookResponseSummary, error) {
+	if err := aggregateRetryAfterSeconds(r, responses); err != nil {
+		return nil, err
+	}
+	return aggregateExtensionResponses(r, responses)
 }
 
 func BeforeClusterUpgrade(*BeforeClusterUpgradeRequest, *BeforeClusterUpgradeResponse) {}
@@ -126,6 +150,8 @@ type AfterControlPlaneUpgradeRequest struct {
 	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
+var _ AggregatableResponse = &AfterClusterUpgradeResponse{}
+
 // AfterControlPlaneUpgradeResponse is the response of AfterControlPlaneUpgrade hook.
 // +kubebuilder:object:root=true
 type AfterControlPlaneUpgradeResponse struct {
@@ -140,6 +166,13 @@ type AfterControlPlaneUpgradeResponse struct {
 
 	// A human-readable description of the status of the call.
 	Message string `json:"message"`
+}
+
+func (r *AfterControlPlaneUpgradeResponse) Aggregate(responses []*ExtensionResponse) (HookResponseSummary, error) {
+	if err := aggregateRetryAfterSeconds(r, responses); err != nil {
+		return nil, err
+	}
+	return aggregateExtensionResponses(r, responses)
 }
 
 func AfterControlPlaneUpgrade(*AfterControlPlaneUpgradeRequest, *AfterControlPlaneUpgradeResponse) {}
@@ -158,6 +191,8 @@ type AfterClusterUpgradeRequest struct {
 	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
+var _ AggregatableResponse = &AfterClusterUpgradeResponse{}
+
 // AfterClusterUpgradeResponse is the response of AfterClusterUpgrade hook.
 // +kubebuilder:object:root=true
 type AfterClusterUpgradeResponse struct {
@@ -170,6 +205,10 @@ type AfterClusterUpgradeResponse struct {
 	Message string `json:"message"`
 }
 
+func (r *AfterClusterUpgradeResponse) Aggregate(responses []*ExtensionResponse) (HookResponseSummary, error) {
+	return aggregateExtensionResponses(r, responses)
+}
+
 func AfterClusterUpgrade(*AfterClusterUpgradeRequest, *AfterClusterUpgradeResponse) {}
 
 // BeforeClusterDeleteRequest is the request of the hook.
@@ -180,6 +219,8 @@ type BeforeClusterDeleteRequest struct {
 	// The cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
+
+var _ AggregatableResponse = &BeforeClusterDeleteResponse{}
 
 // BeforeClusterDeleteResponse is the response of BeforeClusterDelete hook.
 // +kubebuilder:object:root=true
@@ -195,6 +236,13 @@ type BeforeClusterDeleteResponse struct {
 
 	// A human-readable description of the status of the call.
 	Message string `json:"message"`
+}
+
+func (r *BeforeClusterDeleteResponse) Aggregate(responses []*ExtensionResponse) (HookResponseSummary, error) {
+	if err := aggregateRetryAfterSeconds(r, responses); err != nil {
+		return nil, err
+	}
+	return aggregateExtensionResponses(r, responses)
 }
 
 func BeforeClusterDelete(*BeforeClusterDeleteRequest, *BeforeClusterDeleteResponse) {}
