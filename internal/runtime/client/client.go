@@ -116,8 +116,6 @@ type hookClient struct {
 	hook   catalog.Hook
 }
 
-// TODO: Using an interface that is in hooksv1alpha1 means now the client has a tight dependency with the api version.
-// Same goes for the Call function while using the GenericExtensionResponse and the `ResponseStatusSuccess`.
 func (h *hookClient) CallAll(ctx context.Context, request runtime.Object, response runtimehooksv1.AggregatableResponse) (runtimehooksv1.HookResponseSummary, error) {
 	gvh, err := h.client.catalog.GroupVersionHook(h.hook)
 	if err != nil {

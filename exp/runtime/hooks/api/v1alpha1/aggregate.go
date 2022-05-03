@@ -37,8 +37,6 @@ type ExtensionResponse struct {
 	Error         error
 }
 
-type ExtensionResponseList []*ExtensionResponse
-
 type ResponseSummaryStatus string
 
 const (
