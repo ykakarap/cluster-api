@@ -350,6 +350,7 @@ func httpCall(ctx context.Context, request, response runtime.Object, opts *httpC
 	}
 
 	defer resp.Body.Close()
+	//TODO: non 200 check
 	if err := json.NewDecoder(resp.Body).Decode(responseLocal); err != nil {
 		return errors.Wrap(err, "failed to decode response")
 	}
