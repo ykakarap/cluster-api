@@ -200,7 +200,7 @@ func TestExtensionReconciler_discoverExtensionConfig(t *testing.T) {
 
 		extensionConfig := fakeExtensionConfigForURL(ns.Name, extensionName, srv1.URL)
 
-		discoveredExtensionConfig, err := discoverExtensionConfig(ctx, runtimeClient, extensionConfig)
+		discoveredExtensionConfig, err := discoverExtensionConfig(ctx, nil, runtimeClient, extensionConfig)
 		g.Expect(err).To(BeNil())
 
 		// Expect exactly one handler and expect the name to be the handler name plus the extension name.
@@ -232,7 +232,7 @@ func TestExtensionReconciler_discoverExtensionConfig(t *testing.T) {
 
 		extensionConfig := fakeExtensionConfigForURL(ns.Name, extensionName, "http://localhost:31239")
 
-		discoveredExtensionConfig, err := discoverExtensionConfig(ctx, runtimeClient, extensionConfig)
+		discoveredExtensionConfig, err := discoverExtensionConfig(ctx, nil, runtimeClient, extensionConfig)
 		g.Expect(err).ToNot(BeNil())
 
 		// Expect exactly one handler and expect the name to be the handler name plus the extension name.

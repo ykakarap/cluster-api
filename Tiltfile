@@ -105,6 +105,7 @@ COPY --from=tilt-helper /usr/bin/kubectl /usr/bin/kubectl
 """,
         "label": "CAPD",
     },
+    # FIXME(sbueringer) how to deploy additional stuff like test-extension via Tilt?
 }
 
 # Reads a provider's tilt-provider.json file and merges it into the providers map.

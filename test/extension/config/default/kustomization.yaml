@@ -1,0 +1,35 @@
+namespace: test-extension-system
+
+commonLabels:
+
+resources:
+- extension.yaml
+- namespace.yaml
+- service.yaml
+
+bases:
+- ../certmanager
+
+patchesStrategicMerge:
+# Provide customizable hook for make targets.
+- extension_image_patch.yaml
+- extension_pull_policy.yaml
+# Enable webhook.
+- extension_webhook_patch.yaml
+
+vars:
+  - name: SERVICE_NAMESPACE # namespace of the service
+    objref:
+      kind: Service
+      version: v1
+      name: webhook-service
+    fieldref:
+      fieldpath: metadata.namespace
+  - name: SERVICE_NAME
+    objref:
+      kind: Service
+      version: v1
+      name: webhook-service
+
+configurations:
+  - kustomizeconfig.yaml

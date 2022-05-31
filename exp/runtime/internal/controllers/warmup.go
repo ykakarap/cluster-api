@@ -98,7 +98,7 @@ func warmupRegistry(ctx context.Context, client client.Client, reader client.Rea
 		extensionConfig := &extensionConfigList.Items[i]
 		original := extensionConfig.DeepCopy()
 
-		extensionConfig, err := discoverExtensionConfig(ctx, runtimeClient, extensionConfig)
+		extensionConfig, err := discoverExtensionConfig(ctx, client, runtimeClient, extensionConfig)
 		if err != nil {
 			errs = append(errs, err)
 		}
