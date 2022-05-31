@@ -361,7 +361,7 @@ func TestApply(t *testing.T) {
 			blueprint, desired := setupTestObjects()
 
 			// If there are patches, set up patch generators.
-			patchEngine := NewEngine()
+			patchEngine := NewEngine(nil)
 			if len(tt.patches) > 0 {
 				// Add the patches.
 				blueprint.ClusterClass.Spec.Patches = tt.patches

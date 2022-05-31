@@ -32,5 +32,13 @@ type Generator interface {
 	// Generate generates patches for templates.
 	// GeneratePatchesRequest contains templates and the corresponding variables.
 	// GeneratePatchesResponse contains the patches which should be applied to the templates of the GenerateRequest.
-	Generate(context.Context, *runtimehooksv1.GeneratePatchesRequest) *runtimehooksv1.GeneratePatchesResponse
+	Generate(context.Context, *runtimehooksv1.GeneratePatchesRequest) (*runtimehooksv1.GeneratePatchesResponse, error)
+}
+
+// Validator defines a component that can validate ClusterClass templates.
+type Validator interface {
+	// Validate validates templates..
+	// ValidateTopologyRequest contains templates and the corresponding variables.
+	// ValidateTopologyResponse contains the validation response.
+	Validate(context.Context, *runtimehooksv1.ValidateTopologyRequest) (*runtimehooksv1.ValidateTopologyResponse, error)
 }

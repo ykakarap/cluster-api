@@ -339,9 +339,10 @@ func TestGenerate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			got := New(tt.patch).Generate(context.Background(), tt.req)
+			got, err := New(tt.patch).Generate(context.Background(), tt.req)
 
 			g.Expect(got).To(Equal(tt.want))
+			g.Expect(err).ToNot(HaveOccurred())
 		})
 	}
 }

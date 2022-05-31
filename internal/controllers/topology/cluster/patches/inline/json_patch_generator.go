@@ -51,7 +51,7 @@ func New(patch *clusterv1.ClusterClassPatch) api.Generator {
 }
 
 // Generate generates JSON patches for the given GeneratePatchesRequest based on a ClusterClassPatch.
-func (j *jsonPatchGenerator) Generate(_ context.Context, req *runtimehooksv1.GeneratePatchesRequest) *runtimehooksv1.GeneratePatchesResponse {
+func (j *jsonPatchGenerator) Generate(_ context.Context, req *runtimehooksv1.GeneratePatchesRequest) (*runtimehooksv1.GeneratePatchesResponse, error) {
 	resp := &runtimehooksv1.GeneratePatchesResponse{}
 
 	globalVariables := toMap(req.Variables)
@@ -113,13 +113,10 @@ func (j *jsonPatchGenerator) Generate(_ context.Context, req *runtimehooksv1.Gen
 	}
 
 	if err := kerrors.NewAggregate(errs); err != nil {
-		return &runtimehooksv1.GeneratePatchesResponse{
-			Status:  runtimehooksv1.ResponseStatusFailure,
-			Message: err.Error(),
-		}
+		return nil, err
 	}
 
-	return resp
+	return resp, nil
 }
 
 // toMap converts a list of Variables to a map of JSON (name is the map key).

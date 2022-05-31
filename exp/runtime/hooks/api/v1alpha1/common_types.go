@@ -32,11 +32,12 @@ type ResponseObject interface {
 
 // CommonResponse is the data structure common to all response types.
 type CommonResponse struct {
-	// Status of the call. One of "Success" or "Failure".
+	// Status of the call.
+	// One of: "Success" or "Failure".
 	Status ResponseStatus `json:"status"`
 
 	// A human-readable description of the status of the call.
-	Message string `json:"message"`
+	Message string `json:"message,omitempty"`
 }
 
 // SetMessage sets the message field for the CommonResponse.

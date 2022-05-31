@@ -306,6 +306,17 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		os.Exit(1)
 	}
 
+	var runtimeRegistry runtimeregistry.ExtensionRegistry
+	var runtimeClient runtimeclient.Client
+	if feature.Gates.Enabled(feature.RuntimeSDK) {
+		// This is the creation of the single RuntimeExtension registry for the controller.
+		runtimeRegistry = runtimeregistry.New()
+		runtimeClient = runtimeclient.New(runtimeclient.Options{
+			Catalog:  catalog,
+			Registry: runtimeRegistry,
+		})
+	}
+
 	if feature.Gates.Enabled(feature.ClusterTopology) {
 		unstructuredCachingClient, err := client.NewDelegatingClient(
 			client.NewDelegatingClientInput{
@@ -336,6 +347,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 			Client:                    mgr.GetClient(),
 			APIReader:                 mgr.GetAPIReader(),
 			UnstructuredCachingClient: unstructuredCachingClient,
+			RuntimeClient:             runtimeClient,
 			WatchFilterValue:          watchFilterValue,
 		}).SetupWithManager(ctx, mgr, concurrency(clusterTopologyConcurrency)); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClusterTopology")
@@ -362,15 +374,10 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	}
 
 	if feature.Gates.Enabled(feature.RuntimeSDK) {
-		// This is the creation of the single RuntimeExtension registry for the controller.
-		registry := runtimeregistry.New()
 		if err = (&runtimecontrollers.ExtensionConfigReconciler{
-			Client:    mgr.GetClient(),
-			APIReader: mgr.GetAPIReader(),
-			RuntimeClient: runtimeclient.New(runtimeclient.Options{
-				Catalog:  catalog,
-				Registry: registry,
-			}),
+			Client:           mgr.GetClient(),
+			APIReader:        mgr.GetAPIReader(),
+			RuntimeClient:    runtimeClient,
 			WatchFilterValue: watchFilterValue,
 		}).SetupWithManager(ctx, mgr, concurrency(extensionConfigConcurrency)); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ExtensionConfig")

@@ -618,7 +618,7 @@ func schema_runtime_hooks_api_v1alpha1_CommonResponse(ref common.ReferenceCallba
 				Properties: map[string]spec.Schema{
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -627,13 +627,12 @@ func schema_runtime_hooks_api_v1alpha1_CommonResponse(ref common.ReferenceCallba
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 				},
-				Required: []string{"status", "message"},
+				Required: []string{"status"},
 			},
 		},
 	}
@@ -689,7 +688,7 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryResponse(ref common.ReferenceCal
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -698,7 +697,6 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryResponse(ref common.ReferenceCal
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -726,7 +724,7 @@ func schema_runtime_hooks_api_v1alpha1_DiscoveryResponse(ref common.ReferenceCal
 						},
 					},
 				},
-				Required: []string{"status", "message", "handlers"},
+				Required: []string{"status", "handlers"},
 			},
 		},
 		Dependencies: []string{
@@ -1202,13 +1200,12 @@ func schema_runtime_hooks_api_v1alpha1_ValidateTopologyResponse(ref common.Refer
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 				},
-				Required: []string{"status", "message"},
+				Required: []string{"status"},
 			},
 		},
 	}

@@ -338,7 +338,13 @@ type ClusterClassPatch struct {
 
 	// Definitions define the patches inline.
 	// Note: Patches will be applied in the order of the array.
-	Definitions []PatchDefinition `json:"definitions"`
+	// +optional
+	Definitions []PatchDefinition `json:"definitions,omitempty"`
+
+	// External defines an external patch.
+	// FIXME(sbueringer): internal or external only => validate
+	// +optional
+	External *ExternalPatchDefinition `json:"external,omitempty"`
 }
 
 // PatchDefinition defines a patch which is applied to customize the referenced templates.
@@ -439,6 +445,18 @@ type JSONPatchValue struct {
 	// Note: The template must evaluate to a valid YAML or JSON value.
 	// +optional
 	Template *string `json:"template,omitempty"`
+}
+
+// ExternalPatchDefinition defines an external patch.
+type ExternalPatchDefinition struct {
+	// GenerateExtension references an extension which is called to generate patches.
+	// FIXME(sbueringer): Q: Fine that GenerateExtension is optional as well?
+	// +optional
+	GenerateExtension *string `json:"generateExtension,omitempty"`
+
+	// GenerateExtension references an extension which is called to validate the topology.
+	// +optional
+	ValidateExtension *string `json:"validateExtension,omitempty"`
 }
 
 // LocalObjectTemplate defines a template for a topology Class.

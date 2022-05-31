@@ -794,11 +794,24 @@ spec:
                         will be disabled. If EnabledIf is not set, the patch will
                         be enabled per default.
                       type: string
+                    external:
+                      description: 'External defines an external patch. FIXME(sbueringer):
+                        internal or external only => validate'
+                      properties:
+                        generateExtension:
+                          description: 'GenerateExtension references an extension
+                            which is called to generate patches. FIXME(sbueringer):
+                            Q: Fine that GenerateExtension is optional as well?'
+                          type: string
+                        validateExtension:
+                          description: GenerateExtension references an extension which
+                            is called to validate the topology.
+                          type: string
+                      type: object
                     name:
                       description: Name of the patch.
                       type: string
                   required:
-                  - definitions
                   - name
                   type: object
                 type: array

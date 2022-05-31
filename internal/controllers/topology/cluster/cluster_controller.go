@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/scope"
+	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -57,6 +58,8 @@ type Reconciler struct {
 	// APIReader is used to list MachineSets directly via the API server to avoid
 	// race conditions caused by an outdated cache.
 	APIReader client.Reader
+
+	RuntimeClient runtimeclient.Client
 
 	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
@@ -100,14 +103,15 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, opt
 	r.externalTracker = external.ObjectTracker{
 		Controller: c,
 	}
-	r.patchEngine = patches.NewEngine()
+	r.patchEngine = patches.NewEngine(r.RuntimeClient)
 	r.recorder = mgr.GetEventRecorderFor("topology/cluster")
 	return nil
 }
 
 // SetupForDryRun prepares the Reconciler for a dry run execution.
 func (r *Reconciler) SetupForDryRun(recorder record.EventRecorder) {
-	r.patchEngine = patches.NewEngine()
+	// FIXME(sbueringer) this won't work without a real registry.
+	r.patchEngine = patches.NewEngine(r.RuntimeClient)
 	r.recorder = recorder
 }
 

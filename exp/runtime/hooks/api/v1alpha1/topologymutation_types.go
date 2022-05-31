@@ -63,12 +63,7 @@ type GeneratePatchesRequestItem struct {
 type GeneratePatchesResponse struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Status of the call.
-	// One of: "Success" or "Failure".
-	Status ResponseStatus `json:"status"`
-
-	// A human-readable description of the status of the call.
-	Message string `json:"message,omitempty"`
+	CommonResponse `json:",inline"`
 
 	// Items is the list of generated patches.
 	Items []GeneratePatchesResponseItem `json:"items"`
@@ -136,12 +131,7 @@ type ValidateTopologyRequestItem struct {
 type ValidateTopologyResponse struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Status of the call.
-	// One of: "Success" or "Failure".
-	Status ResponseStatus `json:"status"`
-
-	// A human-readable description of the status of the call.
-	Message string `json:"message"`
+	CommonResponse `json:",inline"`
 }
 
 // Variable represents a variable value.
@@ -175,7 +165,7 @@ type HolderReference struct {
 }
 
 // ValidateTopology validates the Cluster topology after all patches have been applied.
-func ValidateTopology(*GeneratePatchesRequest, *GeneratePatchesResponse) {}
+func ValidateTopology(*ValidateTopologyRequest, *ValidateTopologyResponse) {}
 
 func init() {
 	catalogBuilder.RegisterHook(GeneratePatches, &runtimecatalog.HookMeta{
