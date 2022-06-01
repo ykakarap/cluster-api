@@ -127,7 +127,7 @@ func schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeResponse(ref common.Re
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -136,13 +136,12 @@ func schema_runtime_hooks_api_v1alpha1_AfterClusterUpgradeResponse(ref common.Re
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 				},
-				Required: []string{"status", "message"},
+				Required: []string{"status"},
 			},
 		},
 	}
@@ -208,7 +207,7 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedResponse(ref 
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -217,13 +216,12 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneInitializedResponse(ref 
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 				},
-				Required: []string{"status", "message"},
+				Required: []string{"status"},
 			},
 		},
 	}
@@ -297,7 +295,7 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeResponse(ref comm
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -306,7 +304,6 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeResponse(ref comm
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -320,7 +317,7 @@ func schema_runtime_hooks_api_v1alpha1_AfterControlPlaneUpgradeResponse(ref comm
 						},
 					},
 				},
-				Required: []string{"status", "message", "retryAfterSeconds"},
+				Required: []string{"status", "retryAfterSeconds"},
 			},
 		},
 	}
@@ -386,7 +383,7 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateResponse(ref common.Re
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -395,7 +392,6 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateResponse(ref common.Re
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -409,7 +405,7 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterCreateResponse(ref common.Re
 						},
 					},
 				},
-				Required: []string{"status", "message", "retryAfterSeconds"},
+				Required: []string{"status", "retryAfterSeconds"},
 			},
 		},
 	}
@@ -475,7 +471,7 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteResponse(ref common.Re
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -484,7 +480,6 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteResponse(ref common.Re
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -498,7 +493,7 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterDeleteResponse(ref common.Re
 						},
 					},
 				},
-				Required: []string{"status", "message", "retryAfterSeconds"},
+				Required: []string{"status", "retryAfterSeconds"},
 			},
 		},
 	}
@@ -580,7 +575,7 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeResponse(ref common.R
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status of the call. One of \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
+							Description: "Status of the call. One of: \"Success\" or \"Failure\".\n\nPossible enum values:\n - `\"Failure\"` represents a failure response.\n - `\"Success\"` represents the success response.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
@@ -589,7 +584,6 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeResponse(ref common.R
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "A human-readable description of the status of the call.",
-							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -603,7 +597,7 @@ func schema_runtime_hooks_api_v1alpha1_BeforeClusterUpgradeResponse(ref common.R
 						},
 					},
 				},
-				Required: []string{"status", "message", "retryAfterSeconds"},
+				Required: []string{"status", "retryAfterSeconds"},
 			},
 		},
 	}
