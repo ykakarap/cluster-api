@@ -19,6 +19,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,6 +36,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
+	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/scope"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
@@ -202,6 +204,29 @@ func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result
 	s.Current, err = r.getCurrentState(ctx, s)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "error reading current state of the Cluster topology")
+	}
+
+	/* TODO: Working comment: DROP later
+	// If the cluster object are being created then:
+	// Make a new request object, make a new response object. Call the BeforeClusterCreateHook.
+	// If we get an error return a reconcile error.
+	// Read the response object, if the response object has a non-zero RetryAfterSeconds value then
+	// return a reconcile result with a requeue after time set to the given value.
+	*/
+	// The cluster topology is yet to be created. Calling the BeforeClusterCreate hook before proceeding.
+	if s.Current.Cluster.Spec.InfrastructureRef == nil && s.Current.Cluster.Spec.ControlPlaneRef == nil {
+		hookRequest := &runtimehooksv1.BeforeClusterCreateRequest{
+			Cluster: *s.Current.Cluster,
+		}
+		hookResponse := &runtimehooksv1.BeforeClusterCreateResponse{}
+		if err := r.RuntimeClient.CallAllExtensions(ctx, runtimehooksv1.BeforeClusterCreate, hookRequest, hookResponse); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "error calling the BeforeClusterCreate hook")
+		}
+		if hookResponse.RetryAfterSeconds != 0 {
+			// TODO: Add a log line here that the custer object is being requeued because the hook asked as to.
+			return ctrl.Result{RequeueAfter: time.Duration(hookResponse.RetryAfterSeconds) * time.Second}, nil
+		}
+		// TODO: Consider how to surface the whole thing in conditions.
 	}
 
 	// Setup watches for InfrastructureCluster and ControlPlane CRs when they exist.

@@ -148,6 +148,7 @@ func (r *ClusterTopologyReconciler) SetupWithManager(ctx context.Context, mgr ct
 	return (&clustertopologycontroller.Reconciler{
 		Client:                    r.Client,
 		APIReader:                 r.APIReader,
+		RuntimeClient:             r.RuntimeClient,
 		UnstructuredCachingClient: r.UnstructuredCachingClient,
 		RuntimeClient:             r.RuntimeClient,
 		WatchFilterValue:          r.WatchFilterValue,
