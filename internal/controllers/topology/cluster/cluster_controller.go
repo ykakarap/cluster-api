@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
+	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/scope"
 	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
@@ -214,19 +215,22 @@ func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result
 	// return a reconcile result with a requeue after time set to the given value.
 	*/
 	// The cluster topology is yet to be created. Calling the BeforeClusterCreate hook before proceeding.
-	if s.Current.Cluster.Spec.InfrastructureRef == nil && s.Current.Cluster.Spec.ControlPlaneRef == nil {
-		hookRequest := &runtimehooksv1.BeforeClusterCreateRequest{
-			Cluster: *s.Current.Cluster,
+	if feature.Gates.Enabled(feature.RuntimeSDK) {
+		if s.Current.Cluster.Spec.InfrastructureRef == nil && s.Current.Cluster.Spec.ControlPlaneRef == nil {
+			hookRequest := &runtimehooksv1.BeforeClusterCreateRequest{
+				Cluster: *s.Current.Cluster,
+			}
+			hookResponse := &runtimehooksv1.BeforeClusterCreateResponse{}
+			if err := r.RuntimeClient.CallAllExtensions(ctx, runtimehooksv1.BeforeClusterCreate, hookRequest, hookResponse); err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "error calling the BeforeClusterCreate hook")
+			}
+			s.HookResponseTracker.Add("BeforeClusterCreate", hookResponse)
+			if hookResponse.RetryAfterSeconds != 0 {
+				// TODO: Add a log line here that the custer object is being requeued because the hook asked as to.
+				return ctrl.Result{RequeueAfter: time.Duration(hookResponse.RetryAfterSeconds) * time.Second}, nil
+			}
+			// TODO: Consider how to surface the whole thing in conditions.
 		}
-		hookResponse := &runtimehooksv1.BeforeClusterCreateResponse{}
-		if err := r.RuntimeClient.CallAllExtensions(ctx, runtimehooksv1.BeforeClusterCreate, hookRequest, hookResponse); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "error calling the BeforeClusterCreate hook")
-		}
-		if hookResponse.RetryAfterSeconds != 0 {
-			// TODO: Add a log line here that the custer object is being requeued because the hook asked as to.
-			return ctrl.Result{RequeueAfter: time.Duration(hookResponse.RetryAfterSeconds) * time.Second}, nil
-		}
-		// TODO: Consider how to surface the whole thing in conditions.
 	}
 
 	// Setup watches for InfrastructureCluster and ControlPlane CRs when they exist.
@@ -243,6 +247,12 @@ func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result
 	// Reconciles current and desired state of the Cluster
 	if err := r.reconcileState(ctx, s); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "error reconciling the Cluster topology")
+	}
+
+	// TODO: This version might be more readable. We could also fold this into the final result that we return.
+	requeueAfter := s.HookResponseTracker.EffectiveRequeueAfter()
+	if requeueAfter != 0 {
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	return ctrl.Result{}, nil

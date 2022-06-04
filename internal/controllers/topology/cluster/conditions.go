@@ -105,6 +105,19 @@ func (r *Reconciler) reconcileTopologyReconciledCondition(s *scope.Scope, cluste
 		return nil
 	}
 
+	if s.HookResponseTracker.EffectiveRequeueAfter() != 0 {
+		conditions.Set(
+			cluster,
+			conditions.FalseCondition(
+				clusterv1.TopologyReconciledCondition,
+				clusterv1.TopologyReconciledHookBlockingReason,
+				clusterv1.ConditionSeverityInfo,
+				s.HookResponseTracker.MessageSummary(),
+			),
+		)
+		return nil
+	}
+
 	// If there are no errors while reconciling and if the topology is not holding out changes
 	// we can consider that spec of all the objects is reconciled to match the topology. Set the
 	// TopologyReconciled condition to true.

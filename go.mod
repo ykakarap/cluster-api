@@ -159,4 +159,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 )
 
-require github.com/emicklei/go-restful v2.15.0+incompatible // indirect
+require (
+	github.com/emicklei/go-restful v2.15.0+incompatible // indirect
+	github.com/gorilla/mux v1.8.0
+)
