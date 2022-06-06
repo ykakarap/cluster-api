@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "docker-cluster-one-hookresponses"
+  namespace: "default"
+data:
+  BeforeClusterCreate: |
+    Status: success
+    RetryAfterSeconds: 10
+  BeforeClusterUpgrade: |
+    Status: success
+    RetryAfterSeconds: 10
+  BeforeClusterDelete: |
+    Status: success
+    RetryAfterSeconds: 10
+

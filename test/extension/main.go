@@ -17,16 +17,21 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 	"gomodules.xyz/jsonpatch/v2"
+	"gopkg.in/yaml.v3"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -34,6 +39,7 @@ import (
 	"k8s.io/component-base/logs"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
@@ -68,7 +74,7 @@ func InitFlags(fs *pflag.FlagSet) {
 	logs.AddFlags(fs, logs.SkipLoggingConfigurationFlags())
 	logOptions.AddFlags(fs)
 
-	fs.IntVar(&webhookPort, "webhook-port", 9443,
+	fs.IntVar(&webhookPort, "webhook-port", 8083,
 		"Webhook Server port")
 
 	fs.StringVar(&webhookCertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
@@ -99,11 +105,24 @@ func main() {
 		TLSMinVersion: "1.2",
 	}
 
+	restConfig := ctrl.GetConfigOrDie()
+	c, err := client.New(restConfig, client.Options{})
+	if err != nil {
+		panic(err)
+	}
+
+	lh := &lifeCycleHooksHandler{
+		client: c,
+	}
+
 	operation1Handler, err := NewHandlerBuilder().
 		WithCatalog(catalog).
 		AddDiscovery(runtimehooksv1.Discovery, doDiscovery). // TODO: this is not strongly typed, but there are type checks when the service starts
 		AddExtension(runtimehooksv1.GeneratePatches, "generate-patches", generatePatches).
 		AddExtension(runtimehooksv1.ValidateTopology, "validate-topology", validateTopology).
+		AddExtension(runtimehooksv1.BeforeClusterCreate, "before-cluster-create", lh.doBeforeClusterCreate).
+		AddExtension(runtimehooksv1.BeforeClusterUpgrade, "before-cluster-upgrade", lh.doBeforeClusterUpgrade).
+		AddExtension(runtimehooksv1.BeforeClusterDelete, "before-cluster-delete", lh.doBeforeClusterDelete).
 		// TODO: test with more services
 		Build()
 	if err != nil {
@@ -124,6 +143,8 @@ func doDiscovery(request *runtimehooksv1.DiscoveryRequest, response *runtimehook
 	fmt.Println("Discovery/v1alpha1 called")
 
 	response.Status = runtimehooksv1.ResponseStatusSuccess
+
+	// Mutation Hooks
 	response.Handlers = append(response.Handlers, runtimehooksv1.ExtensionHandler{
 		Name: "generate-patches",
 		RequestHook: runtimehooksv1.GroupVersionHook{
@@ -138,6 +159,35 @@ func doDiscovery(request *runtimehooksv1.DiscoveryRequest, response *runtimehook
 		RequestHook: runtimehooksv1.GroupVersionHook{
 			APIVersion: runtimehooksv1.GroupVersion.String(),
 			Hook:       "ValidateTopology",
+		},
+		TimeoutSeconds: pointer.Int32(10),
+		FailurePolicy:  toPtr(runtimehooksv1.FailurePolicyFail),
+	})
+
+	// Lifecycle Hooks
+	response.Handlers = append(response.Handlers, runtimehooksv1.ExtensionHandler{
+		Name: "before-cluster-create",
+		RequestHook: runtimehooksv1.GroupVersionHook{
+			APIVersion: runtimehooksv1.GroupVersion.String(),
+			Hook:       "BeforeClusterCreate",
+		},
+		TimeoutSeconds: pointer.Int32(10),
+		FailurePolicy:  toPtr(runtimehooksv1.FailurePolicyFail),
+	})
+	response.Handlers = append(response.Handlers, runtimehooksv1.ExtensionHandler{
+		Name: "before-cluster-upgrade",
+		RequestHook: runtimehooksv1.GroupVersionHook{
+			APIVersion: runtimehooksv1.GroupVersion.String(),
+			Hook:       "BeforeClusterUpgrade",
+		},
+		TimeoutSeconds: pointer.Int32(10),
+		FailurePolicy:  toPtr(runtimehooksv1.FailurePolicyFail),
+	})
+	response.Handlers = append(response.Handlers, runtimehooksv1.ExtensionHandler{
+		Name: "before-cluster-delete",
+		RequestHook: runtimehooksv1.GroupVersionHook{
+			APIVersion: runtimehooksv1.GroupVersion.String(),
+			Hook:       "BeforeClusterDelete",
 		},
 		TimeoutSeconds: pointer.Int32(10),
 		FailurePolicy:  toPtr(runtimehooksv1.FailurePolicyFail),
@@ -309,4 +359,83 @@ func mergeBuiltinVariables(variableList ...apiextensionsv1.JSON) (*apiextensions
 	return &apiextensionsv1.JSON{
 		Raw: builtinVariableJSON,
 	}, nil
+}
+
+type lifeCycleHooksHandler struct {
+	client client.Client
+}
+
+func (h *lifeCycleHooksHandler) doBeforeClusterCreate(request *runtimehooksv1.BeforeClusterCreateRequest, response *runtimehooksv1.BeforeClusterCreateResponse) (retErr error) {
+	fmt.Println("BeforeClusterCreate is called")
+	cluster := request.Cluster
+	responseInfo, err := h.responseFromConfigMap(cluster.Name, cluster.Namespace, "BeforeClusterCreate")
+	if err != nil {
+		return err
+	}
+	response.Status = runtimehooksv1.ResponseStatus(responseInfo["Status"])
+	retryAfterSeconds, err := strconv.Atoi(responseInfo["RetryAfterSeconds"])
+	if err != nil {
+		return err
+	}
+	response.RetryAfterSeconds = int32(retryAfterSeconds)
+	fmt.Printf("BeforeClusterCreate responding RetryAfterSeconds: %v\n", response.RetryAfterSeconds)
+	return nil
+}
+
+func (h *lifeCycleHooksHandler) doBeforeClusterUpgrade(request *runtimehooksv1.BeforeClusterUpgradeRequest, response *runtimehooksv1.BeforeClusterUpgradeResponse) (retErr error) {
+	fmt.Println("BeforeClusterUpgrade is called")
+	cluster := request.Cluster
+	responseInfo, err := h.responseFromConfigMap(cluster.Name, cluster.Namespace, "BeforeClusterUpgrade")
+	if err != nil {
+		return err
+	}
+	response.Status = runtimehooksv1.ResponseStatus(responseInfo["Status"])
+	retryAfterSeconds, err := strconv.Atoi(responseInfo["RetryAfterSeconds"])
+	if err != nil {
+		return err
+	}
+	response.RetryAfterSeconds = int32(retryAfterSeconds)
+	fmt.Printf("BeforeClusterUpgrade responding RetryAfterSeconds: %v\n", response.RetryAfterSeconds)
+	return nil
+}
+
+func (h *lifeCycleHooksHandler) doBeforeClusterDelete(request *runtimehooksv1.BeforeClusterDeleteRequest, response *runtimehooksv1.BeforeClusterDeleteResponse) (retErr error) {
+	fmt.Println("BeforeClusterDelete is called")
+	cluster := request.Cluster
+	responseInfo, err := h.responseFromConfigMap(cluster.Name, cluster.Namespace, "BeforeClusterDelete")
+	if err != nil {
+		return err
+	}
+	response.Status = runtimehooksv1.ResponseStatus(responseInfo["Status"])
+	retryAfterSeconds, err := strconv.Atoi(responseInfo["RetryAfterSeconds"])
+	if err != nil {
+		return err
+	}
+	response.RetryAfterSeconds = int32(retryAfterSeconds)
+	fmt.Printf("BeforeClusterDelete responding RetryAfterSeconds: %v\n", response.RetryAfterSeconds)
+	return nil
+}
+
+func randomRetryAfter() int32 {
+	s := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(s)
+
+	retryAfter := r.Intn(10)
+	// if retryAfter <= 2 {
+	// 	retryAfter = 0
+	// }
+	return int32(retryAfter)
+}
+
+func (h *lifeCycleHooksHandler) responseFromConfigMap(name, namespace string, hook string) (map[string]string, error) {
+	configMap := &corev1.ConfigMap{}
+	configMapName := name + "-hookresponses"
+	if err := h.client.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: configMapName}, configMap); err != nil {
+		return nil, errors.Wrapf(err, "failed to read the ConfigMap %s/%s", namespace, configMapName)
+	}
+	m := map[string]string{}
+	if err := yaml.Unmarshal([]byte(configMap.Data[hook]), m); err != nil {
+		return nil, errors.Wrapf(err, "failed to read %q response information from ConfigMap", hook)
+	}
+	return m, nil
 }

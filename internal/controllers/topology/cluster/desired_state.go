@@ -623,6 +623,12 @@ func computeMachineDeploymentVersion(s *scope.Scope, desiredControlPlaneState *s
 		return currentVersion, nil
 	}
 
+	// If the ControlPlane is pending picking up an upgrade then do not pick up the new version yet.
+	if s.UpgradeTracker.ControlPlane.PendingUpgrade {
+		s.UpgradeTracker.MachineDeployments.MarkPendingUpgrade(currentMDState.Object.Name)
+		return currentVersion, nil
+	}
+
 	// At this point the control plane is stable (not scaling, not upgrading, not being upgraded).
 	// Checking to see if the machine deployments are also stable.
 	// If any of the MachineDeployments is rolling out, do not upgrade the machine deployment yet.
