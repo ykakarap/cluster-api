@@ -74,7 +74,7 @@ func InitFlags(fs *pflag.FlagSet) {
 	logs.AddFlags(fs, logs.SkipLoggingConfigurationFlags())
 	logOptions.AddFlags(fs)
 
-	fs.IntVar(&webhookPort, "webhook-port", 8083,
+	fs.IntVar(&webhookPort, "webhook-port", 9443,
 		"Webhook Server port")
 
 	fs.StringVar(&webhookCertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",

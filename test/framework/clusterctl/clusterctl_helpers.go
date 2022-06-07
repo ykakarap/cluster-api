@@ -174,6 +174,7 @@ func UpgradeManagementClusterAndWait(ctx context.Context, input UpgradeManagemen
 	}
 }
 
+// TODO (ykakarap): Refactor this to embed ApplyClusterTemplateInput
 // ApplyClusterTemplateAndWaitInput is the input type for ApplyClusterTemplateAndWait.
 type ApplyClusterTemplateAndWaitInput struct {
 	ClusterProxy                 framework.ClusterProxy
@@ -185,6 +186,13 @@ type ApplyClusterTemplateAndWaitInput struct {
 	WaitForMachinePools          []interface{}
 	Args                         []string // extra args to be used during `kubectl apply`
 	ControlPlaneWaiters
+}
+
+type ApplyClusterTemplateInput struct {
+	ClusterProxy    framework.ClusterProxy
+	ConfigCluster   ConfigClusterInput
+	CNIManifestPath string
+	Args            []string // extra args to be used during `kubectl apply`
 }
 
 // Waiter is a function that runs and waits for a long running operation to finish and updates the result.
@@ -203,6 +211,11 @@ type ApplyClusterTemplateAndWaitResult struct {
 	ControlPlane       *controlplanev1.KubeadmControlPlane
 	MachineDeployments []*clusterv1.MachineDeployment
 	MachinePools       []*expv1.MachinePool
+}
+
+type ApplyClusterTemplateResult struct {
+	ClusterClass *clusterv1.ClusterClass
+	Cluster      *clusterv1.Cluster
 }
 
 // ExpectedWorkerNodes returns the expected number of worker nodes that will
@@ -315,6 +328,50 @@ func ApplyClusterTemplateAndWait(ctx context.Context, input ApplyClusterTemplate
 		Lister:  input.ClusterProxy.GetClient(),
 		Cluster: result.Cluster,
 	}, input.WaitForMachinePools...)
+}
+
+// ApplyClusterTemplateAndWait gets a cluster template using clusterctl, and waits for the cluster to be ready.
+// Important! this method assumes the cluster uses a KubeadmControlPlane and MachineDeployments.
+func ApplyClusterTemplate(ctx context.Context, input ApplyClusterTemplateInput, result *ApplyClusterTemplateResult) {
+	Expect(ctx).NotTo(BeNil(), "ctx is required for ApplyClusterTemplateAndWait")
+	Expect(input.ClusterProxy).ToNot(BeNil(), "Invalid argument. input.ClusterProxy can't be nil when calling ApplyClusterTemplateAndWait")
+	Expect(result).ToNot(BeNil(), "Invalid argument. result can't be nil when calling ApplyClusterTemplateAndWait")
+	Expect(input.ConfigCluster.ControlPlaneMachineCount).ToNot(BeNil())
+	Expect(input.ConfigCluster.WorkerMachineCount).ToNot(BeNil())
+
+	log.Logf("Creating the workload cluster with name %q using the %q template (Kubernetes %s, %d control-plane machines, %d worker machines)",
+		input.ConfigCluster.ClusterName, valueOrDefault(input.ConfigCluster.Flavor), input.ConfigCluster.KubernetesVersion, *input.ConfigCluster.ControlPlaneMachineCount, *input.ConfigCluster.WorkerMachineCount)
+
+	log.Logf("Getting the cluster template yaml")
+	workloadClusterTemplate := ConfigCluster(ctx, ConfigClusterInput{
+		// pass reference to the management cluster hosting this test
+		KubeconfigPath: input.ConfigCluster.KubeconfigPath,
+		// pass the clusterctl config file that points to the local provider repository created for this test,
+		ClusterctlConfigPath: input.ConfigCluster.ClusterctlConfigPath,
+		// select template
+		Flavor: input.ConfigCluster.Flavor,
+		// define template variables
+		Namespace:                input.ConfigCluster.Namespace,
+		ClusterName:              input.ConfigCluster.ClusterName,
+		KubernetesVersion:        input.ConfigCluster.KubernetesVersion,
+		ControlPlaneMachineCount: input.ConfigCluster.ControlPlaneMachineCount,
+		WorkerMachineCount:       input.ConfigCluster.WorkerMachineCount,
+		InfrastructureProvider:   input.ConfigCluster.InfrastructureProvider,
+		// setup clusterctl logs folder
+		LogFolder: input.ConfigCluster.LogFolder,
+	})
+	Expect(workloadClusterTemplate).ToNot(BeNil(), "Failed to get the cluster template")
+
+	log.Logf("Applying the cluster template yaml to the cluster")
+	Expect(input.ClusterProxy.Apply(ctx, workloadClusterTemplate, input.Args...)).To(Succeed())
+
+	if result.Cluster.Spec.Topology != nil {
+		result.ClusterClass = framework.GetClusterClassByName(ctx, framework.GetClusterClassByNameInput{
+			Getter:    input.ClusterProxy.GetClient(),
+			Namespace: input.ConfigCluster.Namespace,
+			Name:      result.Cluster.Spec.Topology.Class,
+		})
+	}
 }
 
 // setDefaults sets the default values for ApplyClusterTemplateAndWaitInput if not set.
