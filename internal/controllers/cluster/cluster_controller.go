@@ -219,7 +219,7 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster) 
 func (r *Reconciler) reconcileDelete(ctx context.Context, cluster *clusterv1.Cluster) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Lets calls the BeforeClusterDelete hook to before proceeding further.
+	// Call the BeforeClusterDelete hook to before proceeding further.
 	if feature.Gates.Enabled(feature.RuntimeSDK) {
 		hookRequest := &runtimehooksv1.BeforeClusterDeleteRequest{
 			Cluster: *cluster,

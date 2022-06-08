@@ -318,20 +318,21 @@ func (r *Reconciler) computeControlPlaneVersion(s *scope.Scope) (string, error) 
 
 	if feature.Gates.Enabled(feature.RuntimeSDK) {
 		// At this point the control plane and the machine deployments are stable and we are almost ready to pick
-		// up the desiredVersion. Lets call the BeforeClusterUpgrade hook.
+		// up the desiredVersion. Call the BeforeClusterUpgrade hook before picking up the desired version.
 		hookRequest := &runtimehooksv1.BeforeClusterUpgradeRequest{
 			Cluster:               *s.Current.Cluster,
 			FromKubernetesVersion: *currentVersion,
 			ToKubernetesVersion:   desiredVersion,
 		}
 		hookResponse := &runtimehooksv1.BeforeClusterUpgradeResponse{}
-		// TODO: may be consider adding ctx to the functions above the chain?
+		// TODO: consider adding ctx to the functions above the chain?
+		// Will also be useful to pickup a logger from the context to add some log messages.
 		if err := r.RuntimeClient.CallAllExtensions(context.Background(), runtimehooksv1.BeforeClusterUpgrade, hookRequest, hookResponse); err != nil {
 			return *currentVersion, errors.Wrap(err, "failed to call BeforeClusterUpgrade hook")
 		}
 		s.HookResponseTracker.Add("BeforeClusterUpgrade", hookResponse)
 		if hookResponse.RetryAfterSeconds != 0 {
-			// Cannot pickup the new version right now. Need to try again later to pickup the new version.
+			// Cannot pickup the new version right now. Need to try again later.
 			return *currentVersion, nil
 		}
 	}

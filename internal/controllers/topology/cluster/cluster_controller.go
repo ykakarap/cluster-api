@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -207,29 +208,14 @@ func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result
 		return ctrl.Result{}, errors.Wrap(err, "error reading current state of the Cluster topology")
 	}
 
-	/* TODO: Working comment: DROP later
-	// If the cluster object are being created then:
-	// Make a new request object, make a new response object. Call the BeforeClusterCreateHook.
-	// If we get an error return a reconcile error.
-	// Read the response object, if the response object has a non-zero RetryAfterSeconds value then
-	// return a reconcile result with a requeue after time set to the given value.
-	*/
-	// The cluster topology is yet to be created. Calling the BeforeClusterCreate hook before proceeding.
+	// The cluster topology is yet to be created. Call the BeforeClusterCreate hook before proceeding.
 	if feature.Gates.Enabled(feature.RuntimeSDK) {
-		if s.Current.Cluster.Spec.InfrastructureRef == nil && s.Current.Cluster.Spec.ControlPlaneRef == nil {
-			hookRequest := &runtimehooksv1.BeforeClusterCreateRequest{
-				Cluster: *s.Current.Cluster,
-			}
-			hookResponse := &runtimehooksv1.BeforeClusterCreateResponse{}
-			if err := r.RuntimeClient.CallAllExtensions(ctx, runtimehooksv1.BeforeClusterCreate, hookRequest, hookResponse); err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "error calling the BeforeClusterCreate hook")
-			}
-			s.HookResponseTracker.Add("BeforeClusterCreate", hookResponse)
-			if hookResponse.RetryAfterSeconds != 0 {
-				// TODO: Add a log line here that the custer object is being requeued because the hook asked as to.
-				return ctrl.Result{RequeueAfter: time.Duration(hookResponse.RetryAfterSeconds) * time.Second}, nil
-			}
-			// TODO: Consider how to surface the whole thing in conditions.
+		res, err := r.callBeforeClusterCreateHook(ctx, s)
+		if err != nil {
+			return reconcile.Result{}, errors.Wrap(err, "error calling BeforeClusterCreate hook")
+		}
+		if !res.IsZero() {
+			return res, nil
 		}
 	}
 
@@ -249,7 +235,6 @@ func (r *Reconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl.Result
 		return ctrl.Result{}, errors.Wrap(err, "error reconciling the Cluster topology")
 	}
 
-	// TODO: This version might be more readable. We could also fold this into the final result that we return.
 	requeueAfter := s.HookResponseTracker.EffectiveRequeueAfter()
 	if requeueAfter != 0 {
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
@@ -277,6 +262,25 @@ func (r *Reconciler) setupDynamicWatches(ctx context.Context, s *scope.Scope) er
 		}
 	}
 	return nil
+}
+
+func (r *Reconciler) callBeforeClusterCreateHook(ctx context.Context, s *scope.Scope) (reconcile.Result, error) {
+	// If the cluster objects (InfraCluster, ControlPlane, etc) are not yet created we are in the creation phase.
+	// Call the BeforeClusterCreate hook before proceeding.
+	if s.Current.Cluster.Spec.InfrastructureRef == nil && s.Current.Cluster.Spec.ControlPlaneRef == nil {
+		hookRequest := &runtimehooksv1.BeforeClusterCreateRequest{
+			Cluster: *s.Current.Cluster,
+		}
+		hookResponse := &runtimehooksv1.BeforeClusterCreateResponse{}
+		if err := r.RuntimeClient.CallAllExtensions(ctx, runtimehooksv1.BeforeClusterCreate, hookRequest, hookResponse); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "error calling the BeforeClusterCreate hook")
+		}
+		s.HookResponseTracker.Add("BeforeClusterCreate", hookResponse)
+		if hookResponse.RetryAfterSeconds != 0 {
+			return ctrl.Result{RequeueAfter: time.Duration(hookResponse.RetryAfterSeconds) * time.Second}, nil
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 // clusterClassToCluster is a handler.ToRequestsFunc to be used to enqueue requests for reconciliation
