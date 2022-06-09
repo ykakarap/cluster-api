@@ -40,7 +40,11 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
+	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
 	"sigs.k8s.io/cluster-api/feature"
+	"sigs.k8s.io/cluster-api/internal/hooks"
+	runtimecatalog "sigs.k8s.io/cluster-api/internal/runtime/catalog"
+	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/collections"
@@ -66,6 +70,8 @@ const (
 type Reconciler struct {
 	Client    client.Client
 	APIReader client.Reader
+
+	RuntimeClient runtimeclient.Client
 
 	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
@@ -214,6 +220,28 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster) 
 // reconcileDelete handles cluster deletion.
 func (r *Reconciler) reconcileDelete(ctx context.Context, cluster *clusterv1.Cluster) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Call the BeforeClusterDelete hook to before proceeding further.
+	if feature.Gates.Enabled(feature.RuntimeSDK) {
+		// CAll the hook only ifi it is not marked already. If it is already marked it would mean don't need to call it anymore.
+		if !hooks.IsPending(runtimehooksv1.BeforeClusterDelete, cluster) {
+			hookRequest := &runtimehooksv1.BeforeClusterDeleteRequest{
+				Cluster: *cluster,
+			}
+			hookResponse := &runtimehooksv1.BeforeClusterDeleteResponse{}
+			if err := r.RuntimeClient.CallAllExtensions(ctx, runtimehooksv1.BeforeClusterDelete, cluster, hookRequest, hookResponse); err != nil {
+				return ctrl.Result{}, errors.Wrapf(err, "error calling the %s hook", runtimecatalog.HookName(runtimehooksv1.BeforeClusterDelete))
+			}
+			if hookResponse.RetryAfterSeconds != 0 {
+				// Cannot proceed with deleting the cluster yet. Lets requeue to retry at a later time.
+				return ctrl.Result{RequeueAfter: time.Duration(hookResponse.RetryAfterSeconds) * time.Second}, nil
+			}
+			// We can proceed with the delete operation. Mark the hook so that we don't call it anymore for this Cluster.
+			if err := hooks.MarkAsPending(ctx, r.Client, cluster, runtimehooksv1.BeforeClusterDelete); err != nil {
+				return ctrl.Result{}, errors.Wrapf(err, "failed to mark %s hook", runtimecatalog.HookName(runtimehooksv1.BeforeClusterDelete))
+			}
+		}
+	}
 
 	descendants, err := r.listDescendants(ctx, cluster)
 	if err != nil {
