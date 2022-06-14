@@ -166,12 +166,15 @@ func clusterLifecycleHooksSpec(ctx context.Context, inputGetter func() ClusterLi
 					        made available to the running extension container.
 			- Read the certificate secret and get the ca.crt and base 64 encode it
 			- Use the base 64 encoded CABUNDLE and create a ExtensionConfig and apply it to the management cluster
-				- Make sure to apply a namespace selector (does it matter at this point?)
+				- Dont need this after the certificate injection work is done.
+				- Make sure to apply a namespace selector.
 			- Eventually check that the ExtensionConfig's status is updated with the Discovery information
+			- Verify that the AfterControlPlaneInitialized hook is called.
 
 			- Create the workload cluster (use the unique name generated in the previous step)
 				- Note: Cannot use ApplyClusterTemplateAndWait. The wait will never resolve because of the blocking hook.
 						Will need a simple ApplyClusterTemplate function. Potentially refactor the ApplyClusterTemplateAndWait to reuse this.
+					   - Might be simple to just call the ConfigCluster and Apply functions instead of another wrapper. (The wrapper might not be used in other places - no benefit).
 			- Consistently check that the creation is blocked. Check for:
 				- cluster.spec.infrastructureRef == nil
 				- cluster.spec.controlPlaneRef == nil
@@ -181,14 +184,18 @@ func clusterLifecycleHooksSpec(ctx context.Context, inputGetter func() ClusterLi
 				- Basically replicate the checks that we have in ApplyClusterTemplateAndWait.
 
 			- Upgrade the workload cluster
-				- Note: Cannot use the UpgradeClusterTopologyAndWaitForUpgrade function. will need to refactor to not include wait
+				- Note: Cannot use the UpgradeClusterTopologyAndWaitForUpgrade function. Either call the upgrade function directly or refactor the existing function as needed.
 			- Consistently, check that the cluster is not upgraded and the cluster is still sitting on the original version. Check for:
 				- ControlPlane version is still old
 				- MachineDeployments are still at the old version
 				- TopologyReconciledCondition == false
-			- Update the ConfigMap to allow upgrade
-			- Eventually check that the cluster is upgraded.
+			- Update the ConfigMap to allow BeforeClusterUpgrade
+			- Eventually check that the control plane is upgraded.
+			- Consistently check that the Machine Deployments are not upgraded.
+			- Update the ConfigMap to allow AfterControlPlaneUpgrade
+			- Eventually check that the cluster is full upgraded.
 				- Basically perform the checks that we do in UpgradeClusterTopologyAndWaitForUpgrade.
+			- Verify that the AfterClusterUpgrade hook is called.
 
 			- Delete the workload cluster
 				- There is probably a function that does DeleteAndWait. <- Dont use this. Breakdown into individual functions like the previous 2 cases.
