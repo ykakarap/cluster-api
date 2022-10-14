@@ -177,10 +177,10 @@ func responsesConfigMap(cluster *clusterv1.Cluster) *corev1.ConfigMap {
 		// Set the initial preloadedResponses for each of the tested hooks.
 		Data: map[string]string{
 			// Blocking hooks are set to return RetryAfterSeconds initially. These will be changed during the test.
-			"BeforeClusterCreate-preloadedResponse":      `{"Status": "Success", "RetryAfterSeconds": 5}`,
-			"BeforeClusterUpgrade-preloadedResponse":     `{"Status": "Success", "RetryAfterSeconds": 5}`,
-			"AfterControlPlaneUpgrade-preloadedResponse": `{"Status": "Success", "RetryAfterSeconds": 5}`,
-			"BeforeClusterDelete-preloadedResponse":      `{"Status": "Success", "RetryAfterSeconds": 5}`,
+			"BeforeClusterCreate-preloadedResponse":      `{"Status": "Success", "RetryAfterSeconds": 0}`,
+			"BeforeClusterUpgrade-preloadedResponse":     `{"Status": "Success", "RetryAfterSeconds": 0}`,
+			"AfterControlPlaneUpgrade-preloadedResponse": `{"Status": "Success", "RetryAfterSeconds": 0}`,
+			"BeforeClusterDelete-preloadedResponse":      `{"Status": "Success", "RetryAfterSeconds": 0}`,
 
 			// Non-blocking hooks are set to Status:Success.
 			"AfterControlPlaneInitialized-preloadedResponse": `{"Status": "Success"}`,
