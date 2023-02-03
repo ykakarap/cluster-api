@@ -18,6 +18,7 @@ package machineset
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,7 +28,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -63,6 +66,8 @@ var (
 	// The polling is against a local memory cache.
 	stateConfirmationInterval = 100 * time.Millisecond
 )
+
+const machineSetManagerName = "capi-machineset"
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
@@ -290,6 +295,7 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 		filteredMachines = append(filteredMachines, machine)
 	}
 
+	// TODO: This logic can also be moved into computeDesiredMachine function.
 	// If not already present, add a label specifying the MachineSet name to Machines.
 	// Ensure all required labels exist on the controlled Machines.
 	// This logic is needed to add the `cluster.x-k8s.io/set-name` label to Machines
@@ -352,6 +358,38 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 		return ctrl.Result{}, errors.Wrap(err, "failed to remediate machines")
 	}
 
+	// Adjust the managedFields of the Machines to make them compatible with SSA.
+	for idx := range filteredMachines {
+		m := filteredMachines[idx]
+		if !m.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := r.adjustManagedFields(ctx, m); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to adjust the managedFields of the Machine %q", m.Name)
+		}
+	}
+
+	// Update the in-place propagated fields on existing machines.
+	for idx := range filteredMachines {
+		m := filteredMachines[idx]
+		if !m.DeletionTimestamp.IsZero() {
+			continue
+		}
+		log := log.WithValues("Machine", klog.KObj(m))
+		updatedMachine := r.computeDesiredMachine(machineSet, m)
+		patchOptions := []client.PatchOption{
+			client.ForceOwnership,
+			client.FieldOwner(machineSetManagerName),
+		}
+		if err := r.Client.Patch(ctx, updatedMachine, client.Apply, patchOptions...); err != nil {
+			log.Error(err, "Failed to update existing Machine")
+			return ctrl.Result{}, errors.Wrap(err, "failed to update Machine")
+		}
+		filteredMachines[idx] = updatedMachine
+	}
+
+	// TODO: update the labels and annotations to the corresponding infra machines and the boostrap configs of the filtered machines.
+
 	syncErr := r.syncReplicas(ctx, machineSet, filteredMachines)
 
 	// Always updates status as machines come up or die.
@@ -389,6 +427,72 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 	return ctrl.Result{}, nil
 }
 
+func (r *Reconciler) adjustManagedFields(ctx context.Context, m *clusterv1.Machine) error {
+	if hasMachineSetManagerManagedField(m) {
+		return nil
+	}
+
+	// Since there is no field managed by the MachineSetManager it means that
+	// this Machine has not been processed after adopting SSA in the MachineSet controller.
+	// Here, drop the managed fields that were managed by the "manager" manager and add an empty entry
+	// for the MachineSetManager.
+	// This will ensure that the MachineSet controller will be able to modify the fields that
+	// were originally owned by "manager". This is specifically important when trying to sync the labels
+	// and annotations from the MachineSet to the Machine.
+	base := m.DeepCopy()
+
+	// Remove managedFieldEntry for manager=manager and operation=update to prevent having two managers holding
+	// values set by the machineset controller.
+	originalManagedFields := m.GetManagedFields()
+	managedFields := make([]metav1.ManagedFieldsEntry, 0, len(originalManagedFields))
+	for i := range originalManagedFields {
+		if originalManagedFields[i].Manager == "manager" &&
+			originalManagedFields[i].Operation == metav1.ManagedFieldsOperationUpdate {
+			continue
+		}
+		managedFields = append(managedFields, originalManagedFields[i])
+	}
+
+	// Add a seeding managedFieldEntry for SSA executed by the management controller, to prevent SSA to create/infer
+	// a default managedFieldEntry when the first SSA is applied.
+	// More specifically, if an existing object doesn't have managedFields when applying the first SSA the API server
+	// creates an entry with operation=Update (kind of guessing where the object comes from), but this entry ends up
+	// acting as a co-ownership and we want to prevent this.
+	// NOTE: fieldV1Map cannot be empty, so we add metadata.name which will be cleaned up at the first SSA patch.
+	fieldV1Map := map[string]interface{}{
+		"f:metadata": map[string]interface{}{
+			"f:name": map[string]interface{}{},
+		},
+	}
+	fieldV1, err := json.Marshal(fieldV1Map)
+	if err != nil {
+		return errors.Wrap(err, "failed to create seeding fieldV1Map for cleaning up legacy managed fields")
+	}
+	now := metav1.Now()
+	managedFields = append(managedFields, metav1.ManagedFieldsEntry{
+		Manager:    machineSetManagerName,
+		Operation:  metav1.ManagedFieldsOperationApply,
+		APIVersion: m.APIVersion,
+		Time:       &now,
+		FieldsType: "FieldsV1",
+		FieldsV1:   &metav1.FieldsV1{Raw: fieldV1},
+	})
+
+	m.SetManagedFields(managedFields)
+
+	return r.Client.Patch(ctx, m, client.MergeFrom(base))
+}
+
+func hasMachineSetManagerManagedField(machine *clusterv1.Machine) bool {
+	managedFields := machine.GetManagedFields()
+	for _, mf := range managedFields {
+		if mf.Manager == machineSetManagerName {
+			return true
+		}
+	}
+	return false
+}
+
 // syncReplicas scales Machine resources up or down.
 func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet, machines []*clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -414,18 +518,17 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 		for i := 0; i < diff; i++ {
 			// Create a new logger so the global logger is not modified.
 			log := log
-			machine := r.getNewMachine(ms)
-
+			machine := r.computeDesiredMachine(ms, nil)
 			// Clone and set the infrastructure and bootstrap references.
 			var (
 				infraRef, bootstrapRef *corev1.ObjectReference
 				err                    error
 			)
 
-			if machine.Spec.Bootstrap.ConfigRef != nil {
+			if ms.Spec.Template.Spec.Bootstrap.ConfigRef != nil {
 				bootstrapRef, err = external.CreateFromTemplate(ctx, &external.CreateFromTemplateInput{
 					Client:      r.Client,
-					TemplateRef: machine.Spec.Bootstrap.ConfigRef,
+					TemplateRef: ms.Spec.Template.Spec.Bootstrap.ConfigRef,
 					Namespace:   machine.Namespace,
 					ClusterName: machine.Spec.ClusterName,
 					Labels:      machine.Labels,
@@ -439,7 +542,9 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 				})
 				if err != nil {
 					conditions.MarkFalse(ms, clusterv1.MachinesCreatedCondition, clusterv1.BootstrapTemplateCloningFailedReason, clusterv1.ConditionSeverityError, err.Error())
-					return errors.Wrapf(err, "failed to clone bootstrap configuration from %s %s while creating a machine", machine.Spec.Bootstrap.ConfigRef.Kind, klog.KRef(machine.Spec.Bootstrap.ConfigRef.Namespace, machine.Spec.Bootstrap.ConfigRef.Name))
+					return errors.Wrapf(err, "failed to clone bootstrap configuration from %s %s while creating a machine",
+						ms.Spec.Template.Spec.Bootstrap.ConfigRef.Kind,
+						klog.KRef(ms.Spec.Template.Spec.Bootstrap.ConfigRef.Namespace, ms.Spec.Template.Spec.Bootstrap.ConfigRef.Name))
 				}
 				machine.Spec.Bootstrap.ConfigRef = bootstrapRef
 				log = log.WithValues(bootstrapRef.Kind, klog.KRef(bootstrapRef.Namespace, bootstrapRef.Name))
@@ -447,7 +552,7 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 
 			infraRef, err = external.CreateFromTemplate(ctx, &external.CreateFromTemplateInput{
 				Client:      r.Client,
-				TemplateRef: &machine.Spec.InfrastructureRef,
+				TemplateRef: &ms.Spec.Template.Spec.InfrastructureRef,
 				Namespace:   machine.Namespace,
 				ClusterName: machine.Spec.ClusterName,
 				Labels:      machine.Labels,
@@ -461,12 +566,18 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 			})
 			if err != nil {
 				conditions.MarkFalse(ms, clusterv1.MachinesCreatedCondition, clusterv1.InfrastructureTemplateCloningFailedReason, clusterv1.ConditionSeverityError, err.Error())
-				return errors.Wrapf(err, "failed to clone infrastructure machine from %s %s while creating a machine", machine.Spec.InfrastructureRef.Kind, klog.KRef(machine.Spec.InfrastructureRef.Namespace, machine.Spec.InfrastructureRef.Name))
+				return errors.Wrapf(err, "failed to clone infrastructure machine from %s %s while creating a machine",
+					ms.Spec.Template.Spec.InfrastructureRef.Kind,
+					klog.KRef(ms.Spec.Template.Spec.InfrastructureRef.Namespace, ms.Spec.Template.Spec.InfrastructureRef.Name))
 			}
 			log = log.WithValues(infraRef.Kind, klog.KRef(infraRef.Namespace, infraRef.Name))
 			machine.Spec.InfrastructureRef = *infraRef
 
-			if err := r.Client.Create(ctx, machine); err != nil {
+			patchOptions := []client.PatchOption{
+				client.ForceOwnership,
+				client.FieldOwner(machineSetManagerName),
+			}
+			if err := r.Client.Patch(ctx, machine, client.Apply, patchOptions...); err != nil {
 				log.Error(err, "Error while creating a machine")
 				r.recorder.Eventf(ms, corev1.EventTypeWarning, "FailedCreate", "Failed to create machine: %v", err)
 				errs = append(errs, err)
@@ -529,45 +640,66 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 	return nil
 }
 
-// getNewMachine creates a new Machine object. The name of the newly created resource is going
-// to be created by the API server, we set the generateName field.
-func (r *Reconciler) getNewMachine(machineSet *clusterv1.MachineSet) *clusterv1.Machine {
-	gv := clusterv1.GroupVersion
-	machine := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: fmt.Sprintf("%s-", machineSet.Name),
-			// Note: by setting the ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
-			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(machineSet, machineSetKind)},
-			Namespace:       machineSet.Namespace,
-			Labels:          make(map[string]string),
-			Annotations:     machineSet.Spec.Template.Annotations,
-		},
-		TypeMeta: metav1.TypeMeta{
-			Kind:       gv.WithKind("Machine").Kind,
-			APIVersion: gv.String(),
-		},
-		Spec: machineSet.Spec.Template.Spec,
-	}
-	machine.Spec.ClusterName = machineSet.Spec.ClusterName
+func (r *Reconciler) computeDesiredMachine(machineSet *clusterv1.MachineSet, existingMachine *clusterv1.Machine) *clusterv1.Machine {
+	desiredMachine := &clusterv1.Machine{}
 
-	// Set the labels from machineSet.Spec.Template.Labels as labels for the new Machine.
-	// Note: We can't just set `machineSet.Spec.Template.Labels` directly and thus "share" the labels
-	// map between Machine and machineSet.Spec.Template.Labels. This would mean that adding the
-	// MachineSetNameLabel and MachineDeploymentNameLabel later on the Machine would also add the labels
-	// to machineSet.Spec.Template.Labels and thus modify the labels of the MachineSet.
+	var machineName string
+	var machineUID types.UID
+	var infraRef, bootstrapRef *corev1.ObjectReference
+	if existingMachine == nil {
+		// Creating a new Machine
+		machineName = names.SimpleNameGenerator.GenerateName(fmt.Sprintf("%s-", machineSet.Name))
+	} else {
+		// Updating an existing Machine
+		machineName = existingMachine.Name
+		machineUID = existingMachine.UID
+		infraRef = &existingMachine.Spec.InfrastructureRef
+		bootstrapRef = existingMachine.Spec.Bootstrap.ConfigRef
+	}
+
+	desiredMachine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))
+	desiredMachine.SetUID(machineUID)
+	desiredMachine.SetName(machineName)
+	desiredMachine.SetNamespace(machineSet.Namespace)
+	desiredMachine.Spec = machineSet.Spec.Template.Spec
+
+	// Set ClusterName
+	desiredMachine.Spec.ClusterName = machineSet.Spec.ClusterName
+
+	// Set OwnerReferences
+	desiredMachine.OwnerReferences = util.EnsureOwnerRef(
+		desiredMachine.OwnerReferences,
+		*metav1.NewControllerRef(machineSet, machineSetKind),
+	)
+
+	// Set Labels
+	desiredMachine.Labels = map[string]string{}
 	for k, v := range machineSet.Spec.Template.Labels {
-		machine.Labels[k] = v
+		desiredMachine.Labels[k] = v
 	}
-
 	// Enforce that the MachineSetNameLabel label is set
 	// Note: the MachineSetNameLabel is added by the default webhook to MachineSet.spec.template.labels if a spec.selector is empty.
-	machine.Labels[clusterv1.MachineSetNameLabel] = capilabels.MustFormatValue(machineSet.Name)
+	desiredMachine.Labels[clusterv1.MachineSetNameLabel] = capilabels.MustFormatValue(machineSet.Name)
 	// Propagate the MachineDeploymentNameLabel from MachineSet to Machine if it exists.
 	if mdName, ok := machineSet.Labels[clusterv1.MachineDeploymentNameLabel]; ok {
-		machine.Labels[clusterv1.MachineDeploymentNameLabel] = mdName
+		desiredMachine.Labels[clusterv1.MachineDeploymentNameLabel] = mdName
 	}
 
-	return machine
+	// Set Annotations
+	desiredMachine.Annotations = map[string]string{}
+	for k, v := range machineSet.Spec.Template.Annotations {
+		desiredMachine.Annotations[k] = v
+	}
+
+	// Set InfrastructureRef
+	if infraRef != nil {
+		desiredMachine.Spec.InfrastructureRef = *infraRef
+	}
+
+	// Set BootstrapConfigRef
+	desiredMachine.Spec.Bootstrap.ConfigRef = bootstrapRef
+
+	return desiredMachine
 }
 
 // shouldExcludeMachine returns true if the machine should be filtered out, false otherwise.
