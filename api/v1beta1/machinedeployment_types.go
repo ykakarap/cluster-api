@@ -57,6 +57,10 @@ const (
 	// MachineDeploymentUniqueLabel is the label applied to Machines
 	// in a MachineDeployment containing the hash of the template.
 	MachineDeploymentUniqueLabel = "machine-template-hash"
+
+	// MachineUniqueIdentifier is the label applied to Machines in a MachineDeployment.
+	// This unique identifier ties the Machines to a target MachineSet.
+	MachineUniqueIdentifier = "machine-unique-identifier"
 )
 
 // ANCHOR: MachineDeploymentSpec

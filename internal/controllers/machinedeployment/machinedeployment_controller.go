@@ -18,6 +18,7 @@ package machinedeployment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -49,6 +50,8 @@ var (
 	// machineDeploymentKind contains the schema.GroupVersionKind for the MachineDeployment type.
 	machineDeploymentKind = clusterv1.GroupVersion.WithKind("MachineDeployment")
 )
+
+const machineDeploymentManagerName = "capi-machinedeployment"
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
@@ -248,6 +251,14 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 		}
 	}
 
+	// Adjust the managedFields of the MachineSets to make them compatible with SSA.
+	for idx := range msList {
+		machineSet := msList[idx]
+		if err := r.adjustManagedFields(ctx, machineSet); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to adjust the managedFields of the MachineSet %q", machineSet.Name)
+		}
+	}
+
 	if d.Spec.Paused {
 		return ctrl.Result{}, r.sync(ctx, d, msList)
 	}
@@ -302,7 +313,7 @@ func (r *Reconciler) getMachineSetsForDeployment(ctx context.Context, d *cluster
 			continue
 		}
 
-		// Attempt to adopt machine if it meets previous conditions and it has no controller references.
+		// Attempt to adopt machineset if it meets previous conditions and it has no controller references.
 		if metav1.GetControllerOf(ms) == nil {
 			if err := r.adoptOrphan(ctx, d, ms); err != nil {
 				log.Error(err, "Failed to adopt MachineSet into MachineDeployment")
@@ -397,6 +408,71 @@ func (r *Reconciler) MachineSetToDeployments(o client.Object) []ctrl.Request {
 
 func (r *Reconciler) shouldAdopt(md *clusterv1.MachineDeployment) bool {
 	return !util.HasOwner(md.OwnerReferences, clusterv1.GroupVersion.String(), []string{"Cluster"})
+}
+
+func (r *Reconciler) adjustManagedFields(ctx context.Context, ms *clusterv1.MachineSet) error {
+	if hasMachineDeploymentManagerManagedField(ms) {
+		return nil
+	}
+
+	// Since there is no field managed by the MachineDeploymentManager it means that
+	// this MachineSet has not been processed after adopting SSA in the MachineDeployment controller.
+	// Here, drop the managed fields that were managed by the "manager" manager and add an empty entry
+	// for the MachineDeploymentManager.
+	// This will ensure that the MachineDeployment controller will be able to modify the fields that
+	// were originally owned by "manager". This is specifically important when trying to sync the labels
+	// and annotations from the MachineDeployment to the MachineSet.
+	base := ms.DeepCopy()
+
+	// Remove managedFieldEntry for manager=manager and operation=update to prevent having two managers holding values set by the machinedeployment controller.
+	originalManagedFields := ms.GetManagedFields()
+	managedFields := make([]metav1.ManagedFieldsEntry, 0, len(originalManagedFields))
+	for i := range originalManagedFields {
+		if originalManagedFields[i].Manager == "manager" &&
+			originalManagedFields[i].Operation == metav1.ManagedFieldsOperationUpdate {
+			continue
+		}
+		managedFields = append(managedFields, originalManagedFields[i])
+	}
+
+	// Add a seeding managedFieldEntry for SSA executed by the management controller, to prevent SSA to create/infer
+	// a default managedFieldEntry when the first SSA is applied.
+	// More specifically, if an existing object doesn't have managedFields when applying the first SSA the API server
+	// creates an entry with operation=Update (kind of guessing where the object comes from), but this entry ends up
+	// acting as a co-ownership and we want to prevent this.
+	// NOTE: fieldV1Map cannot be empty, so we add metadata.name which will be cleaned up at the first SSA patch.
+	fieldV1Map := map[string]interface{}{
+		"f:metadata": map[string]interface{}{
+			"f:name": map[string]interface{}{},
+		},
+	}
+	fieldV1, err := json.Marshal(fieldV1Map)
+	if err != nil {
+		return errors.Wrap(err, "failed to create seeding fieldV1Map for cleaning up legacy managed fields")
+	}
+	now := metav1.Now()
+	managedFields = append(managedFields, metav1.ManagedFieldsEntry{
+		Manager:    machineDeploymentManagerName,
+		Operation:  metav1.ManagedFieldsOperationApply,
+		APIVersion: ms.APIVersion,
+		Time:       &now,
+		FieldsType: "FieldsV1",
+		FieldsV1:   &metav1.FieldsV1{Raw: fieldV1},
+	})
+
+	ms.SetManagedFields(managedFields)
+
+	return r.Client.Patch(ctx, ms, client.MergeFrom(base))
+}
+
+func hasMachineDeploymentManagerManagedField(ms *clusterv1.MachineSet) bool {
+	managedFields := ms.GetManagedFields()
+	for _, mf := range managedFields {
+		if mf.Manager == machineDeploymentManagerName {
+			return true
+		}
+	}
+	return false
 }
 
 func reconcileExternalTemplateReference(ctx context.Context, c client.Client, apiReader client.Reader, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {

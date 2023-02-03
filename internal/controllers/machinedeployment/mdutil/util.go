@@ -19,13 +19,10 @@ package mdutil
 
 import (
 	"fmt"
-	"hash"
-	"hash/fnv"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -39,6 +36,28 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conversion"
 )
+
+// MachineSetsByDecreasingReplicas sorts the list of MachineSets in decreasing order of replicas,
+// using creation time and name as tie breakers.
+type MachineSetsByDecreasingReplicas []*clusterv1.MachineSet
+
+func (o MachineSetsByDecreasingReplicas) Len() int      { return len(o) }
+func (o MachineSetsByDecreasingReplicas) Swap(i, j int) { o[i], o[j] = o[j], o[i] }
+func (o MachineSetsByDecreasingReplicas) Less(i, j int) bool {
+	if o[i].Spec.Replicas == nil {
+		return false
+	}
+	if o[j].Spec.Replicas == nil {
+		return true
+	}
+	if *o[i].Spec.Replicas == *o[j].Spec.Replicas {
+		if o[i].CreationTimestamp.Equal(&o[j].CreationTimestamp) {
+			return o[i].Name < o[j].Name
+		}
+		return o[i].CreationTimestamp.Before(&o[j].CreationTimestamp)
+	}
+	return *o[i].Spec.Replicas > *o[j].Spec.Replicas
+}
 
 // MachineSetsByCreationTimestamp sorts a list of MachineSet by creation timestamp, using their names as a tie breaker.
 type MachineSetsByCreationTimestamp []*clusterv1.MachineSet
@@ -239,6 +258,22 @@ func SetNewMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newMS 
 	return annotationChanged
 }
 
+// CalculateMachineSetAnnotations calculates the annotations that should be set on the MachineSet.
+func CalculateMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newRevision string) map[string]string {
+	annotations := map[string]string{}
+	for k, v := range deployment.Annotations {
+		if skipCopyAnnotation(k) {
+			continue
+		}
+		annotations[k] = v
+	}
+	// TODO: Should we still preserve the revision history even thought we dont use it?
+	annotations[clusterv1.RevisionAnnotation] = newRevision
+	annotations[clusterv1.DesiredReplicasAnnotation] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
+	annotations[clusterv1.MaxReplicasAnnotation] = fmt.Sprintf("%d", *(deployment.Spec.Replicas)+MaxSurge(*deployment))
+	return annotations
+}
+
 // FindOneActiveOrLatest returns the only active or the latest machine set in case there is at most one active
 // machine set. If there are more than one active machine sets, return nil so machine sets can be scaled down
 // to the point where there is only one active machine set.
@@ -368,17 +403,10 @@ func getMachineSetFraction(ms clusterv1.MachineSet, d clusterv1.MachineDeploymen
 }
 
 // EqualMachineTemplate returns true if two given machineTemplateSpec are equal,
-// ignoring the diff in value of Labels["machine-template-hash"], and the version from external references.
+// ignoring all the in-place propagated fields, and the version from external references.
 func EqualMachineTemplate(template1, template2 *clusterv1.MachineTemplateSpec) bool {
-	t1Copy := template1.DeepCopy()
-	t2Copy := template2.DeepCopy()
-
-	// Remove `machine-template-hash` from the comparison:
-	// 1. The hash result would be different upon machineTemplateSpec API changes
-	//    (e.g. the addition of a new field will cause the hash code to change)
-	// 2. The deployment template won't have hash labels
-	delete(t1Copy.Labels, clusterv1.MachineDeploymentUniqueLabel)
-	delete(t2Copy.Labels, clusterv1.MachineDeploymentUniqueLabel)
+	t1Copy := machineTemplateDeepCopyIgnoringInPlacePropagatedFields(template1)
+	t2Copy := machineTemplateDeepCopyIgnoringInPlacePropagatedFields(template2)
 
 	// Remove the version part from the references APIVersion field,
 	// for more details see issue #2183 and #2140.
@@ -394,9 +422,29 @@ func EqualMachineTemplate(template1, template2 *clusterv1.MachineTemplateSpec) b
 	return apiequality.Semantic.DeepEqual(t1Copy, t2Copy)
 }
 
-// FindNewMachineSet returns the new MS this given deployment targets (the one with the same machine template).
+func machineTemplateDeepCopyIgnoringInPlacePropagatedFields(template *clusterv1.MachineTemplateSpec) *clusterv1.MachineTemplateSpec {
+	templateCopy := template.DeepCopy()
+
+	// Drop labels and annotations
+	templateCopy.Labels = nil
+	templateCopy.Annotations = nil
+
+	// Drop node timeout values
+	templateCopy.Spec.NodeDrainTimeout = nil
+	templateCopy.Spec.NodeDeletionTimeout = nil
+	templateCopy.Spec.NodeVolumeDetachTimeout = nil
+
+	return templateCopy
+}
+
+// FindNewMachineSet returns the new MS this given deployment targets (the one with the same machine template, ignoring in-place propagated fields).
+// NOTE: Even after we switch to the new approach to template matching we can guarantee that if there exists a "new machineset"
+// using the old logic then a new machineset will definitely exist using the new logic. The new logic is looser. Therefore, we will
+// not face a case where there exists a machine set matching the old logic but there does not exist a machineset matching the new logic.
+// In fact previously not matching MS can now start matching the target. Since there could be multiple matches, lets choose the
+// MS with the most replicas so that there is minimum machine churn.
 func FindNewMachineSet(deployment *clusterv1.MachineDeployment, msList []*clusterv1.MachineSet) *clusterv1.MachineSet {
-	sort.Sort(MachineSetsByCreationTimestamp(msList))
+	sort.Sort(MachineSetsByDecreasingReplicas(msList))
 	for i := range msList {
 		if EqualMachineTemplate(&msList[i].Spec.Template, &deployment.Spec.Template) {
 			// In rare cases, such as after cluster upgrades, Deployment may end up with
@@ -615,22 +663,6 @@ func FilterMachineSets(mSes []*clusterv1.MachineSet, filterFn filterMS) []*clust
 	return filtered
 }
 
-// CloneAndAddLabel clones the given map and returns a new map with the given key and value added.
-// Returns the given map, if labelKey is empty.
-func CloneAndAddLabel(labels map[string]string, labelKey, labelValue string) map[string]string {
-	if labelKey == "" {
-		// Don't need to add a label.
-		return labels
-	}
-	// Clone.
-	newLabels := map[string]string{}
-	for key, value := range labels {
-		newLabels[key] = value
-	}
-	newLabels[labelKey] = labelValue
-	return newLabels
-}
-
 // CloneSelectorAndAddLabel clones the given selector and returns a new selector with the given key and value added.
 // Returns the given selector, if labelKey is empty.
 func CloneSelectorAndAddLabel(selector *metav1.LabelSelector, labelKey, labelValue string) *metav1.LabelSelector {
@@ -669,33 +701,6 @@ func CloneSelectorAndAddLabel(selector *metav1.LabelSelector, labelKey, labelVal
 	}
 
 	return newSelector
-}
-
-// SpewHashObject writes specified object to hash using the spew library
-// which follows pointers and prints actual values of the nested objects
-// ensuring the hash does not change when a pointer changes.
-func SpewHashObject(hasher hash.Hash, objectToWrite interface{}) error {
-	hasher.Reset()
-	printer := spew.ConfigState{
-		Indent:         " ",
-		SortKeys:       true,
-		DisableMethods: true,
-		SpewKeys:       true,
-	}
-
-	if _, err := printer.Fprintf(hasher, "%#v", objectToWrite); err != nil {
-		return fmt.Errorf("failed to write object to hasher")
-	}
-	return nil
-}
-
-// ComputeSpewHash computes the hash of a MachineTemplateSpec using the spew library.
-func ComputeSpewHash(objectToWrite interface{}) (uint32, error) {
-	machineTemplateSpecHasher := fnv.New32a()
-	if err := SpewHashObject(machineTemplateSpecHasher, objectToWrite); err != nil {
-		return 0, err
-	}
-	return machineTemplateSpecHasher.Sum32(), nil
 }
 
 // GetDeletingMachineCount gets the number of machines that are in the process of being deleted

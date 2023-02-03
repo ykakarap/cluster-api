@@ -18,16 +18,18 @@ package machinedeployment
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	apirand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,6 +41,15 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
+)
+
+var (
+	// stateConfirmationTimeout is the amount of time allowed to wait for desired state.
+	stateConfirmationTimeout = 10 * time.Second
+
+	// stateConfirmationInterval is the amount of time between polling for the desired state.
+	// The polling is against a local memory cache.
+	stateConfirmationInterval = 100 * time.Millisecond
 )
 
 // sync is responsible for reconciling deployments on scaling events or when they
@@ -100,159 +111,217 @@ func (r *Reconciler) getNewMachineSet(ctx context.Context, d *clusterv1.MachineD
 	maxOldRevision := mdutil.MaxRevision(oldMSs, log)
 
 	// Calculate revision number for this new machine set
-	newRevision := strconv.FormatInt(maxOldRevision+1, 10)
+	newRevisionInt := maxOldRevision + 1
+	newRevision := strconv.FormatInt(newRevisionInt, 10)
 
-	// Latest machine set exists. We need to sync its annotations (includes copying all but
-	// annotationsToSkip from the parent deployment, and update revision, desiredReplicas,
-	// and maxReplicas) and also update the revision annotation in the deployment with the
-	// latest revision.
+	// Latest MachineSet exists. We need to sync all the in-place propagated values.
 	if existingNewMS != nil {
-		msCopy := existingNewMS.DeepCopy()
-		patchHelper, err := patch.NewHelper(msCopy, r.Client)
-		if err != nil {
-			return nil, err
-		}
+		// FIXME: In the current implementation any changes to in-place propagated fields do not cause the revision to change.
+		// Therefore we loose track of the history of MachineDeployment changes and therefore it wont be able to revert back
+		// to an old state (a state that differs only in the in-place propagated field values).
+		// In the next iteration this will be changed so that in-place propagated values are also captures in history while
+		// not triggering a rollout.
 
-		// Set existing new machine set's annotation
-		annotationsUpdated := mdutil.SetNewMachineSetAnnotations(d, msCopy, newRevision, true, log)
-
-		minReadySecondsNeedsUpdate := msCopy.Spec.MinReadySeconds != *d.Spec.MinReadySeconds
-		deletePolicyNeedsUpdate := d.Spec.Strategy.RollingUpdate.DeletePolicy != nil && msCopy.Spec.DeletePolicy != *d.Spec.Strategy.RollingUpdate.DeletePolicy
-		if annotationsUpdated || minReadySecondsNeedsUpdate || deletePolicyNeedsUpdate {
-			msCopy.Spec.MinReadySeconds = *d.Spec.MinReadySeconds
-
-			if deletePolicyNeedsUpdate {
-				msCopy.Spec.DeletePolicy = *d.Spec.Strategy.RollingUpdate.DeletePolicy
+		// The existingMS's revision should be the greatest among all MSes. Usually, its revision number is newRevision
+		// (the max revision number of all old MSes + 1). However, it's possible that some old MSes are deleted
+		// after the existingMS's revision was updated, and newRevision becomes smaller than the current existingMS's
+		// revision. We should only update existingMS's revision when it's smaller than newRevision.
+		// TODO: check if the above comment is actually correct. (The comment was copied from old code). Can the case actually happen?
+		oldRevision, ok := existingNewMS.Annotations[clusterv1.RevisionAnnotation]
+		if ok {
+			oldRevisionInt, err := strconv.ParseInt(oldRevision, 10, 64)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to parse oldRevision on MachineSet")
 			}
-
-			return nil, patchHelper.Patch(ctx, msCopy)
+			if newRevisionInt < oldRevisionInt {
+				newRevision = oldRevision
+			}
 		}
+
+		desiredMS, err := r.computeDesiredMachineSet(d, existingNewMS, oldMSs, newRevision)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to compute desired MachineSet")
+		}
+		patchOptions := []client.PatchOption{
+			client.ForceOwnership,
+			client.FieldOwner(machineDeploymentManagerName),
+		}
+		if err = r.Client.Patch(ctx, desiredMS, client.Apply, patchOptions...); err != nil {
+			log.Error(err, "Failed to update existing MachineSet", "MachineSet", klog.KObj(desiredMS))
+			r.recorder.Eventf(d, corev1.EventTypeWarning, "FailedUpdate", "Failed to update MachineSet %q: %v", desiredMS.Name, err)
+			return nil, errors.Wrap(err, "failed to patch the MachineSet")
+		}
+		log.V(4).Info("Updated MachineSet", "MachineSet", klog.KObj(desiredMS))
 
 		// Apply revision annotation from existingNewMS if it is missing from the deployment.
 		err = r.updateMachineDeployment(ctx, d, func(innerDeployment *clusterv1.MachineDeployment) {
-			mdutil.SetDeploymentRevision(d, msCopy.Annotations[clusterv1.RevisionAnnotation])
+			mdutil.SetDeploymentRevision(d, desiredMS.Annotations[clusterv1.RevisionAnnotation])
 		})
-		return msCopy, err
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to update revision annotation on MachineDeployment")
+		}
+		return desiredMS, nil
 	}
 
 	if !createIfNotExisted {
 		return nil, nil
 	}
 
-	// new MachineSet does not exist, create one.
-	newMSTemplate := *d.Spec.Template.DeepCopy()
-	hash, err := mdutil.ComputeSpewHash(&newMSTemplate)
+	// Create a new MachineSet
+	newMS, err := r.computeDesiredMachineSet(d, nil, oldMSs, newRevision)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to compute desired MachineSet")
 	}
-	machineTemplateSpecHash := fmt.Sprintf("%d", hash)
-	newMSTemplate.Labels = mdutil.CloneAndAddLabel(d.Spec.Template.Labels,
-		clusterv1.MachineDeploymentUniqueLabel, machineTemplateSpecHash)
-
-	// Add machineTemplateHash label to selector.
-	newMSSelector := mdutil.CloneSelectorAndAddLabel(&d.Spec.Selector,
-		clusterv1.MachineDeploymentUniqueLabel, machineTemplateSpecHash)
-
-	minReadySeconds := int32(0)
-	if d.Spec.MinReadySeconds != nil {
-		minReadySeconds = *d.Spec.MinReadySeconds
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(machineDeploymentManagerName),
 	}
-
-	// Create new MachineSet
-	newMS := clusterv1.MachineSet{
-		ObjectMeta: metav1.ObjectMeta{
-			// Make the name deterministic, to ensure idempotence
-			Name:      d.Name + "-" + apirand.SafeEncodeString(machineTemplateSpecHash),
-			Namespace: d.Namespace,
-			Labels:    make(map[string]string),
-			// Note: by setting the ownerRef on creation we signal to the MachineSet controller that this is not a stand-alone MachineSet.
-			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(d, machineDeploymentKind)},
-		},
-		Spec: clusterv1.MachineSetSpec{
-			ClusterName:     d.Spec.ClusterName,
-			Replicas:        new(int32),
-			MinReadySeconds: minReadySeconds,
-			Selector:        *newMSSelector,
-			Template:        newMSTemplate,
-		},
-	}
-
-	// Set the labels from newMSTemplate as top-level labels for the new MS.
-	// Note: We can't just set `newMSTemplate.Labels` directly and thus "share" the labels map between top-level and
-	// .spec.template.metadata.labels. This would mean that adding the MachineDeploymentNameLabel later top-level
-	// would also add the label to .spec.template.metadata.labels.
-	for k, v := range newMSTemplate.Labels {
-		newMS.Labels[k] = v
-	}
-
-	// Enforce that the MachineDeploymentNameLabel label is set
-	// Note: the MachineDeploymentNameLabel is added by the default webhook to MachineDeployment.spec.template.labels if spec.selector is empty.
-	newMS.Labels[clusterv1.MachineDeploymentNameLabel] = d.Name
-
-	if d.Spec.Strategy.RollingUpdate.DeletePolicy != nil {
-		newMS.Spec.DeletePolicy = *d.Spec.Strategy.RollingUpdate.DeletePolicy
-	}
-
-	// Add foregroundDeletion finalizer to MachineSet if the MachineDeployment has it
-	finalizerSet := sets.Set[string]{}.Insert(d.Finalizers...)
-	if finalizerSet.Has(metav1.FinalizerDeleteDependents) {
-		controllerutil.AddFinalizer(&newMS, metav1.FinalizerDeleteDependents)
-	}
-
-	allMSs := append(oldMSs, &newMS)
-	newReplicasCount, err := mdutil.NewMSNewReplicas(d, allMSs, &newMS)
+	err = r.Client.Patch(ctx, newMS, client.Apply, patchOptions...)
 	if err != nil {
-		return nil, err
-	}
-
-	*(newMS.Spec.Replicas) = newReplicasCount
-
-	// Set new machine set's annotation
-	mdutil.SetNewMachineSetAnnotations(d, &newMS, newRevision, false, log)
-	// Create the new MachineSet. If it already exists, then we need to check for possible
-	// hash collisions. If there is any other error, we need to report it in the status of
-	// the Deployment.
-	alreadyExists := false
-	err = r.Client.Create(ctx, &newMS)
-	createdMS := &newMS
-	switch {
-	// We may end up hitting this due to a slow cache or a fast resync of the Deployment.
-	case apierrors.IsAlreadyExists(err):
-		alreadyExists = true
-
-		ms := &clusterv1.MachineSet{}
-		msErr := r.Client.Get(ctx, client.ObjectKey{Namespace: newMS.Namespace, Name: newMS.Name}, ms)
-		if msErr != nil {
-			return nil, msErr
-		}
-
-		// If the Deployment owns the MachineSet and the MachineSet's MachineTemplateSpec is semantically
-		// deep equal to the MachineTemplateSpec of the Deployment, it's the Deployment's new MachineSet.
-		// Otherwise, this is a hash collision and we need to increment the collisionCount field in
-		// the status of the Deployment and requeue to try the creation in the next sync.
-		controllerRef := metav1.GetControllerOf(ms)
-		if controllerRef != nil && controllerRef.UID == d.UID && mdutil.EqualMachineTemplate(&d.Spec.Template, &ms.Spec.Template) {
-			createdMS = ms
-			break
-		}
-
-		return nil, err
-	case err != nil:
-		log.Error(err, "Failed to create new MachineSet", "MachineSet", klog.KObj(&newMS))
+		log.Error(err, "Failed to create new MachineSet", "MachineSet", klog.KObj(newMS))
 		r.recorder.Eventf(d, corev1.EventTypeWarning, "FailedCreate", "Failed to create MachineSet %q: %v", newMS.Name, err)
 		return nil, err
 	}
+	log.V(4).Info("Created new MachineSet", "MachineSet", klog.KObj(newMS))
+	r.recorder.Eventf(d, corev1.EventTypeNormal, "SuccessfulCreate", "Created MachineSet %q", newMS.Name)
 
-	if !alreadyExists {
-		log.V(4).Info("Created new MachineSet", "MachineSet", klog.KObj(createdMS))
-		r.recorder.Eventf(d, corev1.EventTypeNormal, "SuccessfulCreate", "Created MachineSet %q", newMS.Name)
+	// Keep trying to get the MS. This will force the cache to update and prevent any future reconciliation of the
+	// MachineDeployment to reconcile with an outdated list of MachineSets which could lead to unwanted creation of a
+	// duplicate MachineSet.
+	if err := wait.PollImmediate(stateConfirmationInterval, stateConfirmationTimeout, func() (bool, error) {
+		ms := &clusterv1.MachineSet{}
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(newMS), ms); err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}); err != nil {
+		return nil, err
 	}
 
 	err = r.updateMachineDeployment(ctx, d, func(innerDeployment *clusterv1.MachineDeployment) {
 		mdutil.SetDeploymentRevision(d, newRevision)
 	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to update revision annotation on MachineDeployment")
+	}
 
-	return createdMS, err
+	return newMS, nil
+}
+
+func (r *Reconciler) computeDesiredMachineSet(deployment *clusterv1.MachineDeployment, existingMS *clusterv1.MachineSet, oldMSs []*clusterv1.MachineSet, newRevision string) (*clusterv1.MachineSet, error) {
+	desiredMS := &clusterv1.MachineSet{}
+
+	var machineSetName string
+	var machineSetUID types.UID
+	var machineUniqueIdentifier string
+	var machineTemplateHash string
+	var selectorKey, selectorValue string
+	labels := map[string]string{}
+	replicas := new(int32)
+
+	if existingMS == nil {
+		// Creating a new MachineSet
+		machineUniqueIdentifier = apirand.String(10)
+		labels[clusterv1.MachineUniqueIdentifier] = machineUniqueIdentifier
+		selectorKey = clusterv1.MachineUniqueIdentifier
+		selectorValue = machineUniqueIdentifier
+
+		machineSetName = deployment.Name + "-" + apirand.SafeEncodeString(machineUniqueIdentifier)
+
+		desiredMS.Spec.Replicas = replicas
+		allMSs := append(oldMSs, desiredMS)
+		newReplicasCount, err := mdutil.NewMSNewReplicas(deployment, allMSs, desiredMS)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to calculate replicas")
+		}
+		replicas = &newReplicasCount
+	} else {
+		// Updating an existing MachineSet
+		machineSetName = existingMS.Name
+		machineSetUID = existingMS.UID
+
+		machineUniqueIdentifier = existingMS.Labels[clusterv1.MachineUniqueIdentifier]
+		if machineUniqueIdentifier != "" {
+			labels[clusterv1.MachineUniqueIdentifier] = machineUniqueIdentifier
+			selectorKey = clusterv1.MachineUniqueIdentifier
+			selectorValue = machineUniqueIdentifier
+		}
+		// Old MachineSet created before in-place propagation was introduced used a
+		// different label and selector.
+		machineTemplateHash = existingMS.Labels[clusterv1.MachineDeploymentUniqueLabel]
+		if machineTemplateHash != "" {
+			labels[clusterv1.MachineDeploymentUniqueLabel] = machineTemplateHash
+			selectorKey = clusterv1.MachineDeploymentUniqueLabel
+			selectorValue = machineTemplateHash
+		}
+
+		replicas = existingMS.Spec.Replicas
+	}
+
+	desiredMS.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("MachineSet"))
+	desiredMS.SetUID(machineSetUID)
+	desiredMS.SetName(machineSetName)
+	desiredMS.SetNamespace(deployment.Namespace)
+
+	// Set ClusterName
+	desiredMS.Spec.ClusterName = deployment.Spec.ClusterName
+
+	// Set Template
+	desiredMS.Spec.Template = *deployment.Spec.Template.DeepCopy()
+
+	// Set labels
+	for k, v := range deployment.Spec.Template.Labels {
+		labels[k] = v
+	}
+	desiredMS.Spec.Template.Labels = labels
+	// Note: We can't just set `desiredMS.Labels` directly and thus "share" the labels map between top-level and
+	// .spec.template.metadata.labels. This would mean that adding the MachineDeploymentNameLabel later top-level
+	// would also add the label to .spec.template.metadata.labels.
+	desiredMS.Labels = map[string]string{}
+	for k, v := range labels {
+		desiredMS.Labels[k] = v
+	}
+	// Enforce that the MachineDeploymentNameLabel label is set
+	// Note: the MachineDeploymentNameLabel is added by the default webhook to MachineDeployment.spec.template.labels if spec.selector is empty.
+	desiredMS.Labels[clusterv1.MachineDeploymentNameLabel] = deployment.Name
+
+	// Set selector
+	desiredMS.Spec.Selector = *mdutil.CloneSelectorAndAddLabel(&deployment.Spec.Selector, selectorKey, selectorValue)
+
+	// Set annotations
+	desiredMS.Annotations = mdutil.CalculateMachineSetAnnotations(deployment, newRevision)
+
+	// Set MinReadySeconds
+	if deployment.Spec.MinReadySeconds != nil {
+		desiredMS.Spec.MinReadySeconds = *deployment.Spec.MinReadySeconds
+	}
+
+	// Set DeletePolicy
+	if deployment.Spec.Strategy.RollingUpdate.DeletePolicy != nil {
+		desiredMS.Spec.DeletePolicy = *deployment.Spec.Strategy.RollingUpdate.DeletePolicy
+	}
+
+	// Set Node timeout values
+	desiredMS.Spec.Template.Spec.NodeDrainTimeout = deployment.Spec.Template.Spec.NodeDrainTimeout
+	desiredMS.Spec.Template.Spec.NodeDeletionTimeout = deployment.Spec.Template.Spec.NodeDeletionTimeout
+	desiredMS.Spec.Template.Spec.NodeVolumeDetachTimeout = deployment.Spec.Template.Spec.NodeVolumeDetachTimeout
+
+	// Set controller ref.
+	controllerRef := *metav1.NewControllerRef(deployment, machineDeploymentKind)
+	desiredMS.OwnerReferences = util.EnsureOwnerRef(desiredMS.OwnerReferences, controllerRef)
+
+	// Add foregroundDeletion finalizer to MachineSet if the MachineDeployment has it
+	if sets.NewString(deployment.Finalizers...).Has(metav1.FinalizerDeleteDependents) {
+		controllerutil.AddFinalizer(desiredMS, metav1.FinalizerDeleteDependents)
+	}
+
+	// Set Replicas
+	desiredMS.Spec.Replicas = replicas
+
+	return desiredMS, nil
 }
 
 // scale scales proportionally in order to mitigate risk. Otherwise, scaling up can increase the size
