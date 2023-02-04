@@ -34,9 +34,9 @@ import (
 // Kubernetes version, infrastructure template, and KubeadmConfig field need to be equivalent.
 func MatchesMachineSpec(infraConfigs map[string]*unstructured.Unstructured, machineConfigs map[string]*bootstrapv1.KubeadmConfig, kcp *controlplanev1.KubeadmControlPlane) func(machine *clusterv1.Machine) bool {
 	return collections.And(
-		func(machine *clusterv1.Machine) bool {
-			return matchMachineTemplateMetadata(kcp, machine)
-		},
+		//func(machine *clusterv1.Machine) bool {
+		//	return matchMachineTemplateMetadata(kcp, machine)
+		//},
 		collections.MatchesKubernetesVersion(kcp.Spec.Version),
 		MatchesKubeadmBootstrapConfig(machineConfigs, kcp),
 		MatchesTemplateClonedFrom(infraConfigs, kcp),
@@ -83,9 +83,11 @@ func MatchesTemplateClonedFrom(infraConfigs map[string]*unstructured.Unstructure
 		}
 
 		// Check if the machine template metadata matches with the infrastructure object.
-		if !matchMachineTemplateMetadata(kcp, infraObj) {
-			return false
-		}
+		// TODO: For the full functionality to work we should also sync the labels and annotations
+		// to infra machines.
+		//if !matchMachineTemplateMetadata(kcp, infraObj) {
+		//	return false
+		//}
 		return true
 	}
 }
@@ -117,9 +119,11 @@ func MatchesKubeadmBootstrapConfig(machineConfigs map[string]*bootstrapv1.Kubead
 		}
 
 		// Check if the machine template metadata matches with the infrastructure object.
-		if !matchMachineTemplateMetadata(kcp, machineConfig) {
-			return false
-		}
+		// TODO: For the full functionality to work we should also sync the labels and annotations
+		// to bootstrap config.
+		//if !matchMachineTemplateMetadata(kcp, machineConfig) {
+		//	return false
+		//}
 
 		// Check if KCP and machine InitConfiguration or JoinConfiguration matches
 		// NOTE: only one between init configuration and join configuration is set on a machine, depending

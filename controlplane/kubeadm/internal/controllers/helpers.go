@@ -19,6 +19,9 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/cluster-api/internal/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -289,59 +292,140 @@ func (r *KubeadmControlPlaneReconciler) generateKubeadmConfig(ctx context.Contex
 }
 
 func (r *KubeadmControlPlaneReconciler) generateMachine(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, infraRef, bootstrapRef *corev1.ObjectReference, failureDomain *string) error {
-	machine := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        names.SimpleNameGenerator.GenerateName(kcp.Name + "-"),
-			Namespace:   kcp.Namespace,
-			Labels:      internal.ControlPlaneMachineLabelsForCluster(kcp, cluster.Name),
-			Annotations: map[string]string{},
-			// Note: by setting the ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(kcp, controlplanev1.GroupVersion.WithKind("KubeadmControlPlane")),
-			},
-		},
-		Spec: clusterv1.MachineSpec{
-			ClusterName:       cluster.Name,
-			Version:           &kcp.Spec.Version,
-			InfrastructureRef: *infraRef,
-			Bootstrap: clusterv1.Bootstrap{
-				ConfigRef: bootstrapRef,
-			},
-			FailureDomain:           failureDomain,
-			NodeDrainTimeout:        kcp.Spec.MachineTemplate.NodeDrainTimeout,
-			NodeDeletionTimeout:     kcp.Spec.MachineTemplate.NodeDeletionTimeout,
-			NodeVolumeDetachTimeout: kcp.Spec.MachineTemplate.NodeVolumeDetachTimeout,
-		},
-	}
+	//machine := &clusterv1.Machine{
+	//	ObjectMeta: metav1.ObjectMeta{
+	//		Name:        names.SimpleNameGenerator.GenerateName(kcp.Name + "-"),
+	//		Namespace:   kcp.Namespace,
+	//		Labels:      internal.ControlPlaneMachineLabelsForCluster(kcp, cluster.Name),
+	//		Annotations: map[string]string{},
+	//		// Note: by setting the ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
+	//		OwnerReferences: []metav1.OwnerReference{
+	//			*metav1.NewControllerRef(kcp, controlplanev1.GroupVersion.WithKind("KubeadmControlPlane")),
+	//		},
+	//	},
+	//	Spec: clusterv1.MachineSpec{
+	//		ClusterName:       cluster.Name,
+	//		Version:           &kcp.Spec.Version,
+	//		InfrastructureRef: *infraRef,
+	//		Bootstrap: clusterv1.Bootstrap{
+	//			ConfigRef: bootstrapRef,
+	//		},
+	//		FailureDomain:    failureDomain,
+	//		NodeDrainTimeout: kcp.Spec.MachineTemplate.NodeDrainTimeout,
+	//	},
+	//}
+	//if kcp.Spec.MachineTemplate.NodeDeletionTimeout != nil {
+	//	machine.Spec.NodeDeletionTimeout = kcp.Spec.MachineTemplate.NodeDeletionTimeout
+	//}
+	//
+	//// Machine's bootstrap config may be missing ClusterConfiguration if it is not the first machine in the control plane.
+	//// We store ClusterConfiguration as annotation here to detect any changes in KCP ClusterConfiguration and rollout the machine if any.
+	//clusterConfig, err := json.Marshal(kcp.Spec.KubeadmConfigSpec.ClusterConfiguration)
+	//if err != nil {
+	//	return errors.Wrap(err, "failed to marshal cluster configuration")
+	//}
+	//
+	//// Add the annotations from the MachineTemplate.
+	//// Note: we intentionally don't use the map directly to ensure we don't modify the map in KCP.
+	//for k, v := range kcp.Spec.MachineTemplate.ObjectMeta.Annotations {
+	//	machine.Annotations[k] = v
+	//}
+	//machine.Annotations[controlplanev1.KubeadmClusterConfigurationAnnotation] = string(clusterConfig)
+	//
+	//if err := r.Client.Create(ctx, machine); err != nil {
+	//	return errors.Wrap(err, "failed to create machine")
+	//}
+	//return nil
 
-	// In case this machine is being created as a consequence of a remediation, then add an annotation
-	// tracking remediating data.
-	// NOTE: This is required in order to track remediation retries.
-	if remediationData, ok := kcp.Annotations[controlplanev1.RemediationInProgressAnnotation]; ok {
-		machine.Annotations[controlplanev1.RemediationForAnnotation] = remediationData
-	}
-
-	// Machine's bootstrap config may be missing ClusterConfiguration if it is not the first machine in the control plane.
-	// We store ClusterConfiguration as annotation here to detect any changes in KCP ClusterConfiguration and rollout the machine if any.
-	clusterConfig, err := json.Marshal(kcp.Spec.KubeadmConfigSpec.ClusterConfiguration)
+	machine, err := r.computeDesiredMachine(ctx, kcp, cluster, infraRef, bootstrapRef, failureDomain, nil)
 	if err != nil {
-		return errors.Wrap(err, "failed to marshal cluster configuration")
+		return errors.Wrap(err, "failed to compute desired machine")
+	}
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(kcpManagerName),
+	}
+	if err := r.Client.Patch(ctx, machine, client.Apply, patchOptions...); err != nil {
+		return errors.Wrap(err, "failed to create machine")
+	}
+	return nil
+}
+
+func (r *KubeadmControlPlaneReconciler) computeDesiredMachine(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, infraRef, bootstrapRef *corev1.ObjectReference, failureDomain *string, existingMachine *clusterv1.Machine) (*clusterv1.Machine, error) {
+	desiredMachine := &clusterv1.Machine{}
+
+	var machineName string
+	var machineUID types.UID
+	var machineFailureDomain *string
+	var version *string
+	annotations := map[string]string{}
+	if existingMachine == nil {
+		// Creating a new machine
+		machineName = names.SimpleNameGenerator.GenerateName(kcp.Name + "-")
+		machineFailureDomain = failureDomain
+		version = &kcp.Spec.Version
+
+		// Machine's bootstrap config may be missing ClusterConfiguration if it is not the first machine in the control plane.
+		// We store ClusterConfiguration as annotation here to detect any changes in KCP ClusterConfiguration and rollout the machine if any.
+		// Nb. This annotation is read when comparing the KubeadmBootstrapConfig to check if a machine needs to be rolled out.
+		clusterConfig, err := json.Marshal(kcp.Spec.KubeadmConfigSpec.ClusterConfiguration)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to marshal cluster configuration")
+		}
+		annotations[controlplanev1.KubeadmClusterConfigurationAnnotation] = string(clusterConfig)
+	} else {
+		// Updating an existing machine
+		machineName = existingMachine.Name
+		machineFailureDomain = existingMachine.Spec.FailureDomain
+		version = existingMachine.Spec.Version
+
+		// For existing machine only set the ClusterConfiguration annotation if the machine already has it.
+		// We should not add the annotation if it was missing in the first place because we do not have enough
+		// information.
+		if clusterConfig, ok := existingMachine.Annotations[controlplanev1.KubeadmClusterConfigurationAnnotation]; ok {
+			annotations[controlplanev1.KubeadmClusterConfigurationAnnotation] = clusterConfig
+		}
 	}
 
+	desiredMachine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))
+	desiredMachine.SetUID(machineUID)
+	desiredMachine.SetName(machineName)
+	desiredMachine.SetNamespace(kcp.Namespace)
+
+	// Set labels
+	machineLabels := internal.ControlPlaneMachineLabelsForCluster(kcp, cluster.Name)
+	// Note: MustFormatValue is used here as the label value can be a hash if the control plane
+	// name is longer than 63 characters.
+	machineLabels[clusterv1.MachineControlPlaneNameLabel] = labels.MustFormatValue(kcp.Name)
+	desiredMachine.SetLabels(machineLabels)
+
+	// Set annotations
 	// Add the annotations from the MachineTemplate.
 	// Note: we intentionally don't use the map directly to ensure we don't modify the map in KCP.
 	for k, v := range kcp.Spec.MachineTemplate.ObjectMeta.Annotations {
-		machine.Annotations[k] = v
+		annotations[k] = v
 	}
-	machine.Annotations[controlplanev1.KubeadmClusterConfigurationAnnotation] = string(clusterConfig)
+	desiredMachine.SetAnnotations(annotations)
 
-	if err := r.Client.Create(ctx, machine); err != nil {
-		return errors.Wrap(err, "failed to create machine")
+	// Set Controller reference
+	desiredMachine.OwnerReferences = util.EnsureOwnerRef(
+		desiredMachine.OwnerReferences,
+		*metav1.NewControllerRef(kcp, controlplanev1.GroupVersion.WithKind("KubeadmControlPlane")),
+	)
+
+	// Set Spec
+	desiredMachine.Spec = clusterv1.MachineSpec{
+		ClusterName:       cluster.Name,
+		Version:           version,
+		InfrastructureRef: *infraRef,
+		Bootstrap: clusterv1.Bootstrap{
+			ConfigRef: bootstrapRef,
+		},
+		FailureDomain:           machineFailureDomain,
+		NodeDrainTimeout:        kcp.Spec.MachineTemplate.NodeDrainTimeout,
+		NodeDeletionTimeout:     kcp.Spec.MachineTemplate.NodeDeletionTimeout,
+		NodeVolumeDetachTimeout: kcp.Spec.MachineTemplate.NodeVolumeDetachTimeout,
 	}
 
-	// Remove the annotation tracking that a remediation is in progress (the remediation completed when
-	// the replacement machine has been created above).
-	delete(kcp.Annotations, controlplanev1.RemediationInProgressAnnotation)
-
-	return nil
+	return desiredMachine, nil
 }

@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -44,7 +45,6 @@ import (
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
-	"sigs.k8s.io/cluster-api/internal/labels"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/collections"
@@ -54,6 +54,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/cluster-api/util/version"
 )
+
+const kcpManagerName = "capi-kubeadmcontrolplane"
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch
@@ -335,20 +337,54 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 	// source ref (reason@machine/name) so the problem can be easily tracked down to its source machine.
 	conditions.SetAggregate(controlPlane.KCP, controlplanev1.MachinesReadyCondition, ownedMachines.ConditionGetters(), conditions.AddSourceRef(), conditions.WithStepCounterIf(false))
 
+	// Adjust the managedFields of the Machines to make them compatible with SSA.
+	for idx := range controlPlane.Machines {
+		m := controlPlane.Machines[idx]
+		if !m.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := r.adjustManagedFields(ctx, m); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to adjust the managedFields of the Machine %q", m.Name)
+		}
+	}
+
+	// Some changes to KCP are propagated in-place and do not need a rollout.
+	// Update the machines with the in-place propagated values.
+	for i := range controlPlane.Machines {
+		machine := controlPlane.Machines[i]
+		updatedMachine, err := r.computeDesiredMachine(
+			ctx, kcp, cluster,
+			&machine.Spec.InfrastructureRef, machine.Spec.Bootstrap.ConfigRef,
+			machine.Spec.FailureDomain, machine,
+		)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "failed to compute updated machine")
+		}
+
+		patchOptions := []client.PatchOption{
+			client.ForceOwnership,
+			client.FieldOwner(kcpManagerName),
+		}
+		if err := r.Client.Patch(ctx, updatedMachine, client.Apply, patchOptions...); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to update machine %s", klog.KObj(machine))
+		}
+		controlPlane.Machines[i] = updatedMachine
+	}
+
 	// Ensure all required labels exist on the controlled Machines.
 	// This logic is needed to add the `cluster.x-k8s.io/control-plane-name` label to Machines
 	// which were created before the `cluster.x-k8s.io/control-plane-name` label was introduced
 	// or if a user manually removed the label.
 	// NOTE: Changes will be applied to the Machines in reconcileControlPlaneConditions.
 	// NOTE: cluster.x-k8s.io/control-plane is already set at this stage (it is used when reading controlPlane.Machines).
-	for i := range controlPlane.Machines {
-		machine := controlPlane.Machines[i]
-		// Note: MustEqualValue and MustFormatValue is used here as the label value can be a hash if the control plane
-		// name is longer than 63 characters.
-		if value, ok := machine.Labels[clusterv1.MachineControlPlaneNameLabel]; !ok || !labels.MustEqualValue(kcp.Name, value) {
-			machine.Labels[clusterv1.MachineControlPlaneNameLabel] = labels.MustFormatValue(kcp.Name)
-		}
-	}
+	//for i := range controlPlane.Machines {
+	//	machine := controlPlane.Machines[i]
+	//	// Note: MustEqualValue and MustFormatValue is used here as the label value can be a hash if the control plane
+	//	// name is longer than 63 characters.
+	//	if value, ok := machine.Labels[clusterv1.MachineControlPlaneNameLabel]; !ok || !labels.MustEqualValue(kcp.Name, value) {
+	//		machine.Labels[clusterv1.MachineControlPlaneNameLabel] = labels.MustFormatValue(kcp.Name)
+	//	}
+	//}
 
 	// Updates conditions reporting the status of static pods and the status of the etcd cluster.
 	// NOTE: Conditions reporting KCP operation progress like e.g. Resized or SpecUpToDate are inlined with the rest of the execution.
@@ -533,6 +569,72 @@ func (r *KubeadmControlPlaneReconciler) ClusterToKubeadmControlPlane(o client.Ob
 	}
 
 	return nil
+}
+
+func (r *KubeadmControlPlaneReconciler) adjustManagedFields(ctx context.Context, m *clusterv1.Machine) error {
+	if hasKCPManagerManagedField(m) {
+		return nil
+	}
+
+	// Since there is no field managed by the KCPManager it means that
+	// this Machine has not been processed after adopting SSA in the KCP controller.
+	// Here, drop the managed fields that were managed by the "manager" manager and add an empty entry
+	// for the KCPManager.
+	// This will ensure that the KCP controller will be able to modify the fields that
+	// were originally owned by "manager". This is specifically important when trying to sync the labels
+	// and annotations from the KCP to the Machine.
+	base := m.DeepCopy()
+
+	// Remove managedFieldEntry for manager=manager and operation=update to prevent having two managers holding
+	// values set by the KCP controller.
+	originalManagedFields := m.GetManagedFields()
+	managedFields := make([]metav1.ManagedFieldsEntry, 0, len(originalManagedFields))
+	for i := range originalManagedFields {
+		if originalManagedFields[i].Manager == "manager" &&
+			originalManagedFields[i].Operation == metav1.ManagedFieldsOperationUpdate {
+			continue
+		}
+		managedFields = append(managedFields, originalManagedFields[i])
+	}
+
+	// Add a seeding managedFieldEntry for SSA executed by the management controller, to prevent SSA to create/infer
+	// a default managedFieldEntry when the first SSA is applied.
+	// More specifically, if an existing object doesn't have managedFields when applying the first SSA the API server
+	// creates an entry with operation=Update (kind of guessing where the object comes from), but this entry ends up
+	// acting as a co-ownership and we want to prevent this.
+	// NOTE: fieldV1Map cannot be empty, so we add metadata.name which will be cleaned up at the first SSA patch.
+	fieldV1Map := map[string]interface{}{
+		"f:metadata": map[string]interface{}{
+			"f:name": map[string]interface{}{},
+		},
+	}
+	fieldV1, err := json.Marshal(fieldV1Map)
+	if err != nil {
+		return errors.Wrap(err, "failed to create seeding fieldV1Map for cleaning up legacy managed fields")
+	}
+	now := metav1.Now()
+	managedFields = append(managedFields, metav1.ManagedFieldsEntry{
+		Manager:    kcpManagerName,
+		Operation:  metav1.ManagedFieldsOperationApply,
+		APIVersion: m.APIVersion,
+		Time:       &now,
+		FieldsType: "FieldsV1",
+		FieldsV1:   &metav1.FieldsV1{Raw: fieldV1},
+	})
+
+	m.SetManagedFields(managedFields)
+
+	return r.Client.Patch(ctx, m, client.MergeFrom(base))
+}
+
+func hasKCPManagerManagedField(machine *clusterv1.Machine) bool {
+	managedFields := machine.GetManagedFields()
+	for _, mf := range managedFields {
+		if mf.Manager == kcpManagerName {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileControlPlaneConditions is responsible of reconciling conditions reporting the status of static pods and
