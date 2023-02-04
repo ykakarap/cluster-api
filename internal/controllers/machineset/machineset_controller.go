@@ -427,23 +427,22 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) adjustManagedFields(ctx context.Context, m *clusterv1.Machine) error {
-	if hasMachineSetManagerManagedField(m) {
+func (r *Reconciler) adjustManagedFields(ctx context.Context, obj client.Object) error {
+	if hasMachineSetManagerManagedField(obj) {
 		return nil
 	}
 
 	// Since there is no field managed by the MachineSetManager it means that
-	// this Machine has not been processed after adopting SSA in the MachineSet controller.
+	// this object has not been processed after adopting SSA in the MachineSet controller.
 	// Here, drop the managed fields that were managed by the "manager" manager and add an empty entry
 	// for the MachineSetManager.
 	// This will ensure that the MachineSet controller will be able to modify the fields that
-	// were originally owned by "manager". This is specifically important when trying to sync the labels
-	// and annotations from the MachineSet to the Machine.
-	base := m.DeepCopy()
+	// were originally owned by "manager".
+	base := obj.DeepCopyObject().(client.Object)
 
 	// Remove managedFieldEntry for manager=manager and operation=update to prevent having two managers holding
 	// values set by the machineset controller.
-	originalManagedFields := m.GetManagedFields()
+	originalManagedFields := obj.GetManagedFields()
 	managedFields := make([]metav1.ManagedFieldsEntry, 0, len(originalManagedFields))
 	for i := range originalManagedFields {
 		if originalManagedFields[i].Manager == "manager" &&
@@ -472,19 +471,19 @@ func (r *Reconciler) adjustManagedFields(ctx context.Context, m *clusterv1.Machi
 	managedFields = append(managedFields, metav1.ManagedFieldsEntry{
 		Manager:    machineSetManagerName,
 		Operation:  metav1.ManagedFieldsOperationApply,
-		APIVersion: m.APIVersion,
+		APIVersion: obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
 		Time:       &now,
 		FieldsType: "FieldsV1",
 		FieldsV1:   &metav1.FieldsV1{Raw: fieldV1},
 	})
 
-	m.SetManagedFields(managedFields)
+	obj.SetManagedFields(managedFields)
 
-	return r.Client.Patch(ctx, m, client.MergeFrom(base))
+	return r.Client.Patch(ctx, obj, client.MergeFrom(base))
 }
 
-func hasMachineSetManagerManagedField(machine *clusterv1.Machine) bool {
-	managedFields := machine.GetManagedFields()
+func hasMachineSetManagerManagedField(obj client.Object) bool {
+	managedFields := obj.GetManagedFields()
 	for _, mf := range managedFields {
 		if mf.Manager == machineSetManagerName {
 			return true

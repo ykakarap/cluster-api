@@ -410,22 +410,21 @@ func (r *Reconciler) shouldAdopt(md *clusterv1.MachineDeployment) bool {
 	return !util.HasOwner(md.OwnerReferences, clusterv1.GroupVersion.String(), []string{"Cluster"})
 }
 
-func (r *Reconciler) adjustManagedFields(ctx context.Context, ms *clusterv1.MachineSet) error {
-	if hasMachineDeploymentManagerManagedField(ms) {
+func (r *Reconciler) adjustManagedFields(ctx context.Context, obj client.Object) error {
+	if hasMachineDeploymentManagerManagedField(obj) {
 		return nil
 	}
 
 	// Since there is no field managed by the MachineDeploymentManager it means that
-	// this MachineSet has not been processed after adopting SSA in the MachineDeployment controller.
+	// this object has not been processed after adopting SSA in the MachineDeployment controller.
 	// Here, drop the managed fields that were managed by the "manager" manager and add an empty entry
 	// for the MachineDeploymentManager.
 	// This will ensure that the MachineDeployment controller will be able to modify the fields that
-	// were originally owned by "manager". This is specifically important when trying to sync the labels
-	// and annotations from the MachineDeployment to the MachineSet.
-	base := ms.DeepCopy()
+	// were originally owned by "manager".
+	base := obj.DeepCopyObject().(client.Object)
 
 	// Remove managedFieldEntry for manager=manager and operation=update to prevent having two managers holding values set by the machinedeployment controller.
-	originalManagedFields := ms.GetManagedFields()
+	originalManagedFields := obj.GetManagedFields()
 	managedFields := make([]metav1.ManagedFieldsEntry, 0, len(originalManagedFields))
 	for i := range originalManagedFields {
 		if originalManagedFields[i].Manager == "manager" &&
@@ -454,19 +453,19 @@ func (r *Reconciler) adjustManagedFields(ctx context.Context, ms *clusterv1.Mach
 	managedFields = append(managedFields, metav1.ManagedFieldsEntry{
 		Manager:    machineDeploymentManagerName,
 		Operation:  metav1.ManagedFieldsOperationApply,
-		APIVersion: ms.APIVersion,
+		APIVersion: obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
 		Time:       &now,
 		FieldsType: "FieldsV1",
 		FieldsV1:   &metav1.FieldsV1{Raw: fieldV1},
 	})
 
-	ms.SetManagedFields(managedFields)
+	obj.SetManagedFields(managedFields)
 
-	return r.Client.Patch(ctx, ms, client.MergeFrom(base))
+	return r.Client.Patch(ctx, obj, client.MergeFrom(base))
 }
 
-func hasMachineDeploymentManagerManagedField(ms *clusterv1.MachineSet) bool {
-	managedFields := ms.GetManagedFields()
+func hasMachineDeploymentManagerManagedField(obj client.Object) bool {
+	managedFields := obj.GetManagedFields()
 	for _, mf := range managedFields {
 		if mf.Manager == machineDeploymentManagerName {
 			return true
