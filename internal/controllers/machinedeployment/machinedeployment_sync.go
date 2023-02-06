@@ -18,6 +18,9 @@ package machinedeployment
 
 import (
 	"context"
+	"encoding/json"
+	jsonpatch "github.com/evanphx/json-patch/v5"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sort"
 	"strconv"
 	"time"
@@ -121,6 +124,7 @@ func (r *Reconciler) getNewMachineSet(ctx context.Context, d *clusterv1.MachineD
 		// to an old state (a state that differs only in the in-place propagated field values).
 		// In the next iteration this will be changed so that in-place propagated values are also captures in history while
 		// not triggering a rollout.
+		existingNewMSCopy := existingNewMS.DeepCopy()
 
 		// The existingMS's revision should be the greatest among all MSes. Usually, its revision number is newRevision
 		// (the max revision number of all old MSes + 1). However, it's possible that some old MSes are deleted
@@ -151,7 +155,17 @@ func (r *Reconciler) getNewMachineSet(ctx context.Context, d *clusterv1.MachineD
 			r.recorder.Eventf(d, corev1.EventTypeWarning, "FailedUpdate", "Failed to update MachineSet %q: %v", desiredMS.Name, err)
 			return nil, errors.Wrap(err, "failed to patch the MachineSet")
 		}
-		log.V(4).Info("Updated MachineSet", "MachineSet", klog.KObj(desiredMS))
+
+		// If there really are changes then create a "filler" MachineSet to preserve history.
+		// Also, increment the revision number.
+		changed, err := hasChanges(existingNewMSCopy, desiredMS, r.Client)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to check if the MachineSet was modified")
+		}
+		if changed {
+			log.V(4).Info("Updated MachineSet", "MachineSet", klog.KObj(desiredMS))
+
+		}
 
 		// Apply revision annotation from existingNewMS if it is missing from the deployment.
 		err = r.updateMachineDeployment(ctx, d, func(innerDeployment *clusterv1.MachineDeployment) {
@@ -618,4 +632,47 @@ func updateMachineDeployment(ctx context.Context, c client.Client, d *clusterv1.
 		modify(md)
 		return patchHelper.Patch(ctx, md)
 	})
+}
+func hasChanges(original client.Object, modified client.Object, c client.Client) (bool, error) {
+	var originalUnstructured *unstructured.Unstructured
+	if !util.IsNil(original) {
+		originalUnstructured = &unstructured.Unstructured{}
+		switch original.(type) {
+		case *unstructured.Unstructured:
+			originalUnstructured = original.DeepCopyObject().(*unstructured.Unstructured)
+		default:
+			if err := c.Scheme().Convert(original, originalUnstructured, nil); err != nil {
+				return false, errors.Wrap(err, "failed to convert original object to Unstructured")
+			}
+		}
+	}
+
+	modifiedUnstructured := &unstructured.Unstructured{}
+	switch modified.(type) {
+	case *unstructured.Unstructured:
+		modifiedUnstructured = modified.DeepCopyObject().(*unstructured.Unstructured)
+	default:
+		if err := c.Scheme().Convert(modified, modifiedUnstructured, nil); err != nil {
+			return false, errors.Wrap(err, "failed to convert modified object to Unstructured")
+		}
+	}
+
+	originalJSON, err := json.Marshal(originalUnstructured)
+	if err != nil {
+		return false, err
+	}
+	modifiedJSON, err := json.Marshal(modifiedUnstructured)
+	if err != nil {
+		return false, err
+	}
+
+	rawDiff, err := jsonpatch.CreateMergePatch(originalJSON, modifiedJSON)
+	if err != nil {
+		return false, err
+	}
+	diff := &unstructured.Unstructured{}
+	if err := json.Unmarshal(rawDiff, &diff.Object); err != nil {
+		return false, err
+	}
+	return len(diff.Object) > 0, nil
 }
