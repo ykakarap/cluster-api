@@ -38,7 +38,7 @@ import (
 )
 
 // MachineSetsByDecreasingReplicas sorts the list of MachineSets in decreasing order of replicas,
-// using creation time and name as tie breakers.
+// using creation time (ascending order) and name (alphabetical) as tie breakers.
 type MachineSetsByDecreasingReplicas []*clusterv1.MachineSet
 
 func (o MachineSetsByDecreasingReplicas) Len() int      { return len(o) }
@@ -259,7 +259,7 @@ func SetNewMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newMS 
 }
 
 // CalculateMachineSetAnnotations calculates the annotations that should be set on the MachineSet.
-func CalculateMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newRevision string) map[string]string {
+func CalculateMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newRevision string, machineSet *clusterv1.MachineSet) map[string]string {
 	annotations := map[string]string{}
 	for k, v := range deployment.Annotations {
 		if skipCopyAnnotation(k) {
@@ -267,7 +267,18 @@ func CalculateMachineSetAnnotations(deployment *clusterv1.MachineDeployment, new
 		}
 		annotations[k] = v
 	}
-	// TODO: Should we still preserve the revision history even thought we dont use it?
+	if machineSet != nil {
+		currentRevision, ok := machineSet.Annotations[clusterv1.RevisionAnnotation]
+		if ok && currentRevision != newRevision {
+			revisionHistory := machineSet.Annotations[clusterv1.RevisionHistoryAnnotation]
+			oldRevisions := strings.Split(revisionHistory, ",")
+			if oldRevisions[0] == "" {
+				annotations[clusterv1.RevisionHistoryAnnotation] = currentRevision
+			} else {
+				annotations[clusterv1.RevisionHistoryAnnotation] = strings.Join(append(oldRevisions, currentRevision), ",")
+			}
+		}
+	}
 	annotations[clusterv1.RevisionAnnotation] = newRevision
 	annotations[clusterv1.DesiredReplicasAnnotation] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
 	annotations[clusterv1.MaxReplicasAnnotation] = fmt.Sprintf("%d", *(deployment.Spec.Replicas)+MaxSurge(*deployment))

@@ -18,7 +18,6 @@ package machinedeployment
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -38,6 +37,7 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/internal/util/ssa"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -254,7 +254,7 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 	// Adjust the managedFields of the MachineSets to make them compatible with SSA.
 	for idx := range msList {
 		machineSet := msList[idx]
-		if err := r.adjustManagedFields(ctx, machineSet); err != nil {
+		if err := ssa.CleanUpManagedFieldsForSSACompatibility(ctx, machineSet, machineDeploymentManagerName, r.Client); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "failed to adjust the managedFields of the MachineSet %q", machineSet.Name)
 		}
 	}
@@ -408,70 +408,6 @@ func (r *Reconciler) MachineSetToDeployments(o client.Object) []ctrl.Request {
 
 func (r *Reconciler) shouldAdopt(md *clusterv1.MachineDeployment) bool {
 	return !util.HasOwner(md.OwnerReferences, clusterv1.GroupVersion.String(), []string{"Cluster"})
-}
-
-func (r *Reconciler) adjustManagedFields(ctx context.Context, obj client.Object) error {
-	if hasMachineDeploymentManagerManagedField(obj) {
-		return nil
-	}
-
-	// Since there is no field managed by the MachineDeploymentManager it means that
-	// this object has not been processed after adopting SSA in the MachineDeployment controller.
-	// Here, drop the managed fields that were managed by the "manager" manager and add an empty entry
-	// for the MachineDeploymentManager.
-	// This will ensure that the MachineDeployment controller will be able to modify the fields that
-	// were originally owned by "manager".
-	base := obj.DeepCopyObject().(client.Object)
-
-	// Remove managedFieldEntry for manager=manager and operation=update to prevent having two managers holding values set by the machinedeployment controller.
-	originalManagedFields := obj.GetManagedFields()
-	managedFields := make([]metav1.ManagedFieldsEntry, 0, len(originalManagedFields))
-	for i := range originalManagedFields {
-		if originalManagedFields[i].Manager == "manager" &&
-			originalManagedFields[i].Operation == metav1.ManagedFieldsOperationUpdate {
-			continue
-		}
-		managedFields = append(managedFields, originalManagedFields[i])
-	}
-
-	// Add a seeding managedFieldEntry for SSA executed by the management controller, to prevent SSA to create/infer
-	// a default managedFieldEntry when the first SSA is applied.
-	// More specifically, if an existing object doesn't have managedFields when applying the first SSA the API server
-	// creates an entry with operation=Update (kind of guessing where the object comes from), but this entry ends up
-	// acting as a co-ownership and we want to prevent this.
-	// NOTE: fieldV1Map cannot be empty, so we add metadata.name which will be cleaned up at the first SSA patch.
-	fieldV1Map := map[string]interface{}{
-		"f:metadata": map[string]interface{}{
-			"f:name": map[string]interface{}{},
-		},
-	}
-	fieldV1, err := json.Marshal(fieldV1Map)
-	if err != nil {
-		return errors.Wrap(err, "failed to create seeding fieldV1Map for cleaning up legacy managed fields")
-	}
-	now := metav1.Now()
-	managedFields = append(managedFields, metav1.ManagedFieldsEntry{
-		Manager:    machineDeploymentManagerName,
-		Operation:  metav1.ManagedFieldsOperationApply,
-		APIVersion: obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
-		Time:       &now,
-		FieldsType: "FieldsV1",
-		FieldsV1:   &metav1.FieldsV1{Raw: fieldV1},
-	})
-
-	obj.SetManagedFields(managedFields)
-
-	return r.Client.Patch(ctx, obj, client.MergeFrom(base))
-}
-
-func hasMachineDeploymentManagerManagedField(obj client.Object) bool {
-	managedFields := obj.GetManagedFields()
-	for _, mf := range managedFields {
-		if mf.Manager == machineDeploymentManagerName {
-			return true
-		}
-	}
-	return false
 }
 
 func reconcileExternalTemplateReference(ctx context.Context, c client.Client, apiReader client.Reader, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {

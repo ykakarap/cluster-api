@@ -71,9 +71,10 @@ func rollbackMachineDeployment(proxy cluster.Proxy, d *clusterv1.MachineDeployme
 	if err != nil {
 		return err
 	}
-	// Copy template into the machinedeployment (excluding the hash)
+	// Copy template into the machinedeployment (excluding the hash and unique-id)
 	revMSTemplate := *msForRevision.Spec.Template.DeepCopy()
 	delete(revMSTemplate.Labels, clusterv1.MachineDeploymentUniqueLabel)
+	delete(revMSTemplate.Labels, clusterv1.MachineSetUniqueIdentifier)
 
 	d.Spec.Template = revMSTemplate
 	return patchHelper.Patch(ctx, d)
