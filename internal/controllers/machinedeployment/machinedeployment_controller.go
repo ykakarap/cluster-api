@@ -251,7 +251,22 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 		}
 	}
 
-	// Adjust the managedFields of the MachineSets to make them compatible with SSA.
+	// Loop over all MachineSets and cleanup managed fields.
+	// In previous versions of Cluster API we were writing MachineSets with Create and the
+	// patch helper which resulted in fields being owned by the "manager".
+	// We are now switching to SSA. SSA will own fields with the "capi-machinedeployment"
+	// manager.
+	// If we want to be able to drop fields that were previously owned by the "manager"
+	// we have to ensure that fields are not co-owned by "manager" and "capi-machinedeployment".
+	// Because otherwise when we drop the fields with SSA (i.e. "capi-machinedeployment") the fields
+	// would remain as they are still owned by the "manager".
+	// The following code will do a one-time update on the managed fields to drop all entries for "manager".
+	// Later on we are not doing this anymore, we will identify this case by looking for fields owned by
+	// "capi-machinedeployment".
+	// Dropping all existing "manager" entries is safe, as we assume that if other controllers are still writing
+	// fields on a MachineSet they will just do it again and thus gain ownership again.
+	// Note: We are cleaning up managed fields for all MachineSets, so we're able to remove this code in a few
+	// Cluster API releases. If we do this only for selected MachineSets, we would have to keep this code forever.
 	for idx := range msList {
 		machineSet := msList[idx]
 		if err := ssa.CleanUpManagedFieldsForSSACompatibility(ctx, machineSet, machineDeploymentManagerName, r.Client); err != nil {
@@ -313,7 +328,7 @@ func (r *Reconciler) getMachineSetsForDeployment(ctx context.Context, d *cluster
 			continue
 		}
 
-		// Attempt to adopt machineset if it meets previous conditions and it has no controller references.
+		// Attempt to adopt MachineSet if it meets previous conditions and it has no controller references.
 		if metav1.GetControllerOf(ms) == nil {
 			if err := r.adoptOrphan(ctx, d, ms); err != nil {
 				log.Error(err, "Failed to adopt MachineSet into MachineDeployment")

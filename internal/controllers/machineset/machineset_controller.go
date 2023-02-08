@@ -324,22 +324,17 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 	}
 
 	// Adjust the managedFields of the Machines to make them compatible with SSA.
+	// FIXME(ykakarap) godoc + move to r.updateMachines()
 	for idx := range filteredMachines {
 		m := filteredMachines[idx]
 		if !m.DeletionTimestamp.IsZero() {
 			continue
 		}
+
 		if err := ssa.CleanUpManagedFieldsForSSACompatibility(ctx, m, machineSetManagerName, r.Client); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "failed to adjust the managedFields of the Machine %q", m.Name)
 		}
-	}
 
-	// Update the in-place propagated fields on existing machines.
-	for idx := range filteredMachines {
-		m := filteredMachines[idx]
-		if !m.DeletionTimestamp.IsZero() {
-			continue
-		}
 		log := log.WithValues("Machine", klog.KObj(m))
 		updatedMachine := r.computeDesiredMachine(machineSet, m)
 		patchOptions := []client.PatchOption{
@@ -540,6 +535,7 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 }
 
 func (r *Reconciler) computeDesiredMachine(machineSet *clusterv1.MachineSet, existingMachine *clusterv1.Machine) *clusterv1.Machine {
+	// FIXME(ykakarap) try to align this to the style of computeDesiredMachineSet
 	desiredMachine := &clusterv1.Machine{}
 
 	desiredMachine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))

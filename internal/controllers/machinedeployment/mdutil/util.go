@@ -259,6 +259,7 @@ func SetNewMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newMS 
 }
 
 // CalculateMachineSetAnnotations calculates the annotations that should be set on the MachineSet.
+// FIXME(ykakarap)
 func CalculateMachineSetAnnotations(deployment *clusterv1.MachineDeployment, newRevision string, machineSet *clusterv1.MachineSet) map[string]string {
 	annotations := map[string]string{}
 	for k, v := range deployment.Annotations {
@@ -569,7 +570,7 @@ func DeploymentComplete(deployment *clusterv1.MachineDeployment, newStatus *clus
 // 1) The new MS is saturated: newMS's replicas == deployment's replicas
 // 2) For RollingUpdateStrategy: Max number of machines allowed is reached: deployment's replicas + maxSurge == all MSs' replicas.
 // 3) For OnDeleteStrategy: Max number of machines allowed is reached: deployment's replicas == all MSs' replicas.
-func NewMSNewReplicas(deployment *clusterv1.MachineDeployment, allMSs []*clusterv1.MachineSet, newMS *clusterv1.MachineSet) (int32, error) {
+func NewMSNewReplicas(deployment *clusterv1.MachineDeployment, allMSs []*clusterv1.MachineSet, newMSReplicas int32) (int32, error) {
 	switch deployment.Spec.Strategy.Type {
 	case clusterv1.RollingUpdateMachineDeploymentStrategyType:
 		// Check if we can scale up.
@@ -582,26 +583,26 @@ func NewMSNewReplicas(deployment *clusterv1.MachineDeployment, allMSs []*cluster
 		maxTotalMachines := *(deployment.Spec.Replicas) + int32(maxSurge)
 		if currentMachineCount >= maxTotalMachines {
 			// Cannot scale up.
-			return *(newMS.Spec.Replicas), nil
+			return newMSReplicas, nil
 		}
 		// Scale up.
 		scaleUpCount := maxTotalMachines - currentMachineCount
 		// Do not exceed the number of desired replicas.
-		scaleUpCount = integer.Int32Min(scaleUpCount, *(deployment.Spec.Replicas)-*(newMS.Spec.Replicas))
-		return *(newMS.Spec.Replicas) + scaleUpCount, nil
+		scaleUpCount = integer.Int32Min(scaleUpCount, *(deployment.Spec.Replicas)-newMSReplicas)
+		return newMSReplicas + scaleUpCount, nil
 	case clusterv1.OnDeleteMachineDeploymentStrategyType:
 		// Find the total number of machines
 		currentMachineCount := TotalMachineSetsReplicaSum(allMSs)
 		if currentMachineCount >= *(deployment.Spec.Replicas) {
 			// Cannot scale up as more replicas exist than desired number of replicas in the MachineDeployment.
-			return *(newMS.Spec.Replicas), nil
+			return newMSReplicas, nil
 		}
 		// Scale up the latest MachineSet so the total amount of replicas across all MachineSets match
 		// the desired number of replicas in the MachineDeployment
 		scaleUpCount := *(deployment.Spec.Replicas) - currentMachineCount
-		return *(newMS.Spec.Replicas) + scaleUpCount, nil
+		return newMSReplicas + scaleUpCount, nil
 	default:
-		return 0, fmt.Errorf("deployment strategy %v isn't supported", deployment.Spec.Strategy.Type)
+		return 0, fmt.Errorf("failed to compute replicas: deployment strategy %v isn't supported", deployment.Spec.Strategy.Type)
 	}
 }
 
@@ -672,6 +673,22 @@ func FilterMachineSets(mSes []*clusterv1.MachineSet, filterFn filterMS) []*clust
 		}
 	}
 	return filtered
+}
+
+// CloneAndAddLabel clones the given map and returns a new map with the given key and value added.
+// Returns the given map, if labelKey is empty.
+func CloneAndAddLabel(labels map[string]string, labelKey, labelValue string) map[string]string {
+	if labelKey == "" {
+		// Don't need to add a label.
+		return labels
+	}
+	// Clone.
+	newLabels := map[string]string{}
+	for key, value := range labels {
+		newLabels[key] = value
+	}
+	newLabels[labelKey] = labelValue
+	return newLabels
 }
 
 // CloneSelectorAndAddLabel clones the given selector and returns a new selector with the given key and value added.

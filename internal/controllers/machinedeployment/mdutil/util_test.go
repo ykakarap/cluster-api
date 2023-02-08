@@ -562,7 +562,7 @@ func TestNewMSNewReplicas(t *testing.T) {
 				}(test.maxSurge),
 			}
 			*(newRC.Spec.Replicas) = test.newMSReplicas
-			ms, err := NewMSNewReplicas(&newDeployment, []*clusterv1.MachineSet{&rs5}, &newRC)
+			ms, err := NewMSNewReplicas(&newDeployment, []*clusterv1.MachineSet{&rs5}, *newRC.Spec.Replicas)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(ms).To(Equal(test.expected))
 		})
