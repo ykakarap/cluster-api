@@ -34,6 +34,8 @@ import (
 // Kubernetes version, infrastructure template, and KubeadmConfig field need to be equivalent.
 func MatchesMachineSpec(infraConfigs map[string]*unstructured.Unstructured, machineConfigs map[string]*bootstrapv1.KubeadmConfig, kcp *controlplanev1.KubeadmControlPlane) func(machine *clusterv1.Machine) bool {
 	return collections.And(
+		// FIXME(ykakarap): Add a note that we are not comparing any fields of MachineSpec because they dont
+		// have to trigger a rollout.
 		//func(machine *clusterv1.Machine) bool {
 		//	return matchMachineTemplateMetadata(kcp, machine)
 		//},

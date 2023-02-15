@@ -356,6 +356,7 @@ func (r *KubeadmControlPlaneReconciler) computeDesiredMachine(kcp *controlplanev
 	} else {
 		// Updating an existing machine
 		machineName = existingMachine.Name
+		machineUID = existingMachine.UID
 		machineFailureDomain = existingMachine.Spec.FailureDomain
 		version = existingMachine.Spec.Version
 
