@@ -180,25 +180,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileExternalReference(ctx context.C
 func (r *KubeadmControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context.Context, cluster *clusterv1.Cluster, kcp *controlplanev1.KubeadmControlPlane, bootstrapSpec *bootstrapv1.KubeadmConfigSpec, failureDomain *string) error {
 	var errs []error
 
-	// Since the cloned resource should eventually have a controller ref for the Machine, we create an
-	// OwnerReference here without the Controller field set
-	infraCloneOwner := &metav1.OwnerReference{
-		APIVersion: controlplanev1.GroupVersion.String(),
-		Kind:       "KubeadmControlPlane",
-		Name:       kcp.Name,
-		UID:        kcp.UID,
-	}
-
-	// Clone the infrastructure template
-	infraRef, err := external.CreateFromTemplate(ctx, &external.CreateFromTemplateInput{
-		Client:      r.Client,
-		TemplateRef: &kcp.Spec.MachineTemplate.InfrastructureRef,
-		Namespace:   kcp.Namespace,
-		OwnerRef:    infraCloneOwner,
-		ClusterName: cluster.Name,
-		Labels:      internal.ControlPlaneMachineLabelsForCluster(kcp, cluster.Name),
-		Annotations: kcp.Spec.MachineTemplate.ObjectMeta.Annotations,
-	})
+	infraRef, err := r.createInfraMachine(ctx, kcp, cluster)
 	if err != nil {
 		// Safe to return early here since no resources have been created yet.
 		conditions.MarkFalse(kcp, controlplanev1.MachinesCreatedCondition, controlplanev1.InfrastructureTemplateCloningFailedReason,
@@ -207,7 +189,7 @@ func (r *KubeadmControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx conte
 	}
 
 	// Clone the bootstrap configuration
-	bootstrapRef, err := r.generateKubeadmConfig(ctx, kcp, cluster, bootstrapSpec)
+	bootstrapRef, err := r.applyKubeadmConfig(ctx, kcp, cluster, bootstrapSpec, "", "")
 	if err != nil {
 		conditions.MarkFalse(kcp, controlplanev1.MachinesCreatedCondition, controlplanev1.BootstrapTemplateCloningFailedReason,
 			clusterv1.ConditionSeverityError, err.Error())
@@ -256,7 +238,7 @@ func (r *KubeadmControlPlaneReconciler) cleanupFromGeneration(ctx context.Contex
 	return kerrors.NewAggregate(errs)
 }
 
-func (r *KubeadmControlPlaneReconciler) generateKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec) (*corev1.ObjectReference, error) {
+func (r *KubeadmControlPlaneReconciler) applyKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec, name string, uid types.UID) (*corev1.ObjectReference, error) {
 	// Create an owner reference without a controller reference because the owning controller is the machine controller
 	owner := metav1.OwnerReference{
 		APIVersion: controlplanev1.GroupVersion.String(),
@@ -266,6 +248,10 @@ func (r *KubeadmControlPlaneReconciler) generateKubeadmConfig(ctx context.Contex
 	}
 
 	bootstrapConfig := &bootstrapv1.KubeadmConfig{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "KubeadmConfig",
+			APIVersion: bootstrapv1.GroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            names.SimpleNameGenerator.GenerateName(kcp.Name + "-"),
 			Namespace:       kcp.Namespace,
@@ -275,9 +261,19 @@ func (r *KubeadmControlPlaneReconciler) generateKubeadmConfig(ctx context.Contex
 		},
 		Spec: *spec,
 	}
+	if name != "" {
+		bootstrapConfig.Name = name
+	}
+	if uid != "" {
+		bootstrapConfig.UID = uid
+	}
 
-	if err := r.Client.Create(ctx, bootstrapConfig); err != nil {
-		return nil, errors.Wrap(err, "Failed to create bootstrap configuration")
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(kcpManagerName),
+	}
+	if err := r.Client.Patch(ctx, bootstrapConfig, client.Apply, patchOptions...); err != nil {
+		return nil, errors.Wrap(err, "failed to create KubeadmConfig: Apply failed")
 	}
 
 	bootstrapRef := &corev1.ObjectReference{
@@ -289,6 +285,63 @@ func (r *KubeadmControlPlaneReconciler) generateKubeadmConfig(ctx context.Contex
 	}
 
 	return bootstrapRef, nil
+}
+
+func (r *KubeadmControlPlaneReconciler) createInfraMachine(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster) (*corev1.ObjectReference, error) {
+	// Since the cloned resource should eventually have a controller ref for the Machine, we create an
+	// OwnerReference here without the Controller field set
+	infraCloneOwner := &metav1.OwnerReference{
+		APIVersion: controlplanev1.GroupVersion.String(),
+		Kind:       "KubeadmControlPlane",
+		Name:       kcp.Name,
+		UID:        kcp.UID,
+	}
+
+	infraTemplateRef := kcp.Spec.MachineTemplate.InfrastructureRef
+	// Clone the infrastructure template
+	infraRef, err := external.ApplyFromTemplate(ctx, &external.ApplyFromTemplateInput{
+		Manager:     kcpManagerName,
+		Client:      r.Client,
+		TemplateRef: &infraTemplateRef,
+		Namespace:   kcp.Namespace,
+		OwnerRef:    infraCloneOwner,
+		ClusterName: cluster.Name,
+		Labels:      internal.ControlPlaneMachineLabelsForCluster(kcp, cluster.Name),
+		Annotations: kcp.Spec.MachineTemplate.ObjectMeta.Annotations,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create Infrastructure Machine object from Template %s",
+			klog.KRef(infraTemplateRef.Namespace, infraTemplateRef.Name))
+	}
+	return infraRef, nil
+}
+
+func (r *KubeadmControlPlaneReconciler) updateInfraMachine(ctx context.Context, infraMachine *unstructured.Unstructured, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster) (*corev1.ObjectReference, error) {
+	owner := &metav1.OwnerReference{
+		APIVersion: controlplanev1.GroupVersion.String(),
+		Kind:       "KubeadmControlPlane",
+		Name:       kcp.Name,
+		UID:        kcp.UID,
+	}
+	infraTemplateRef := kcp.Spec.MachineTemplate.InfrastructureRef
+	updatedInfraRef, err := external.ApplyFromTemplate(ctx, &external.ApplyFromTemplateInput{
+		Manager:     kcpManagerName,
+		Name:        infraMachine.GetName(),
+		UID:         infraMachine.GetUID(),
+		Client:      r.Client,
+		TemplateRef: &infraTemplateRef,
+		Namespace:   kcp.Namespace,
+		OwnerRef:    owner,
+		ClusterName: cluster.Name,
+		Labels:      internal.ControlPlaneMachineLabelsForCluster(kcp, cluster.Name),
+		Annotations: kcp.Spec.MachineTemplate.ObjectMeta.Annotations,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to update Infrastructure Machine %s object from Template %s",
+			klog.KObj(infraMachine),
+			klog.KRef(infraTemplateRef.Namespace, infraTemplateRef.Name))
+	}
+	return updatedInfraRef, nil
 }
 
 func (r *KubeadmControlPlaneReconciler) createMachine(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, infraRef, bootstrapRef *corev1.ObjectReference, failureDomain *string) error {

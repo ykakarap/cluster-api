@@ -337,6 +337,14 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 		return ctrl.Result{}, errors.Wrap(err, "failed to sync machines")
 	}
 
+	if err := r.syncInfrastructureMachines(ctx, controlPlane); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to sync infrastructure machines")
+	}
+
+	if err := r.syncKubeadmConfigs(ctx, controlPlane); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to sync KubeadmConfigs")
+	}
+
 	// Aggregate the operational state of all the machines; while aggregating we are adding the
 	// source ref (reason@machine/name) so the problem can be easily tracked down to its source machine.
 	conditions.SetAggregate(controlPlane.KCP, controlplanev1.MachinesReadyCondition, ownedMachines.ConditionGetters(), conditions.AddSourceRef(), conditions.WithStepCounterIf(false))
@@ -453,6 +461,41 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 			return errors.Wrapf(err, "failed to update Machine: %s", klog.KObj(machine))
 		}
 		controlPlane.Machines[i] = updatedMachine
+	}
+	return nil
+}
+
+func (r *KubeadmControlPlaneReconciler) syncInfrastructureMachines(ctx context.Context, controlPlane *internal.ControlPlane) error {
+	// FIXME(ykakarap) Add a comment block. Explain everything that is happening here.
+	for i := range controlPlane.InfraResources {
+		infraMachine := controlPlane.InfraResources[i]
+		if !infraMachine.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, infraMachine, kcpManagerName, r.Client); err != nil {
+			return errors.Wrapf(err, "failed to clean up managedFields of Infrastructure Machine %s", klog.KObj(infraMachine))
+		}
+		if _, err := r.updateInfraMachine(ctx, infraMachine, controlPlane.KCP, controlPlane.Cluster); err != nil {
+			return errors.Wrapf(err, "failed to update Infrastructure Machine %s", klog.KObj(infraMachine))
+		}
+	}
+	return nil
+}
+
+func (r *KubeadmControlPlaneReconciler) syncKubeadmConfigs(ctx context.Context, controlPlane *internal.ControlPlane) error {
+	// FIXME(ykakarap) Add a comment block. Explain everything that is happening here.
+	for i := range controlPlane.KubeadmConfigs {
+		kubeadmConfig := controlPlane.KubeadmConfigs[i]
+		if !kubeadmConfig.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, kubeadmConfig, kcpManagerName, r.Client); err != nil {
+			return errors.Wrapf(err, "failed to clean up managedFields of KubeadmConfig %s", klog.KObj(kubeadmConfig))
+		}
+		_, err := r.applyKubeadmConfig(ctx, controlPlane.KCP, controlPlane.Cluster, &kubeadmConfig.Spec, kubeadmConfig.Name, kubeadmConfig.UID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to update KubeadmConfig %s", klog.KObj(kubeadmConfig))
+		}
 	}
 	return nil
 }

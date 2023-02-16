@@ -18,13 +18,16 @@ package external
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/storage/names"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -112,6 +115,84 @@ func CreateFromTemplate(ctx context.Context, in *CreateFromTemplateInput) (*core
 	}
 
 	return GetObjectReference(to), nil
+}
+
+// ApplyFromTemplateInput is the input to ApplyFromTemplate.
+type ApplyFromTemplateInput struct {
+	// Client is the controller runtime client.
+	Client client.Client
+
+	// TemplateRef is a reference to the template that needs to be cloned.
+	TemplateRef *corev1.ObjectReference
+
+	// Name is the Kubernetes name of the target object.
+	// If Name is empty a random name would be generated.
+	// +optional
+	Name string
+
+	// If UID is specified it will be used on the target object.
+	// +optional
+	UID types.UID
+
+	// Namespace is the Kubernetes namespace the cloned object should be created into.
+	Namespace string
+
+	// ClusterName is the cluster this object is linked to.
+	ClusterName string
+
+	// OwnerRef is an optional OwnerReference to attach to the cloned object.
+	// +optional
+	OwnerRef *metav1.OwnerReference
+
+	// Labels is an optional map of labels to be added to the object.
+	// +optional
+	Labels map[string]string
+
+	// Annotations is an optional map of annotations to be added to the object.
+	// +optional
+	Annotations map[string]string
+
+	// Manager is the name of the manager to when using SSA patch.
+	Manager string
+}
+
+// ApplyFromTemplate uses the client and the reference to create a new object from the template.
+func ApplyFromTemplate(ctx context.Context, in *ApplyFromTemplateInput) (*corev1.ObjectReference, error) {
+	if in.Manager == "" {
+		return nil, fmt.Errorf("manager is not specified")
+	}
+	from, err := Get(ctx, in.Client, in.TemplateRef, in.Namespace)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get template %s", klog.KRef(in.TemplateRef.Namespace, in.TemplateRef.Name))
+	}
+	generateTemplateInput := &GenerateTemplateInput{
+		Template:    from,
+		TemplateRef: in.TemplateRef,
+		Namespace:   in.Namespace,
+		ClusterName: in.ClusterName,
+		OwnerRef:    in.OwnerRef,
+		Labels:      in.Labels,
+		Annotations: in.Annotations,
+	}
+	obj, err := GenerateTemplate(generateTemplateInput)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to generate object from template %s", klog.KRef(in.TemplateRef.Namespace, in.TemplateRef.Name))
+	}
+	if in.Name != "" {
+		obj.SetName(in.Name)
+	}
+	obj.SetUID(in.UID)
+
+	// Apply the patch using Server-Side-Apply.
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(in.Manager),
+	}
+	if err := in.Client.Patch(ctx, obj, client.Apply, patchOptions...); err != nil {
+		return nil, errors.Wrapf(err, "failed to Apply object from template %s", klog.KRef(in.TemplateRef.Namespace, in.TemplateRef.Name))
+	}
+
+	return GetObjectReference(obj), nil
 }
 
 // GenerateTemplateInput is the input needed to generate a new template.
