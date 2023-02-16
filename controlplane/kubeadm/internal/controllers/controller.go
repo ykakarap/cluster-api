@@ -492,7 +492,7 @@ func (r *KubeadmControlPlaneReconciler) syncKubeadmConfigs(ctx context.Context, 
 		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, kubeadmConfig, kcpManagerName, r.Client); err != nil {
 			return errors.Wrapf(err, "failed to clean up managedFields of KubeadmConfig %s", klog.KObj(kubeadmConfig))
 		}
-		_, err := r.applyKubeadmConfig(ctx, controlPlane.KCP, controlPlane.Cluster, &kubeadmConfig.Spec, kubeadmConfig.Name, kubeadmConfig.UID)
+		_, err := r.updateKubeadmConfig(ctx, controlPlane.KCP, controlPlane.Cluster, kubeadmConfig)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update KubeadmConfig %s", klog.KObj(kubeadmConfig))
 		}
@@ -764,7 +764,7 @@ func (r *KubeadmControlPlaneReconciler) adoptMachines(ctx context.Context, kcp *
 		ref := m.Spec.Bootstrap.ConfigRef
 
 		// TODO instead of returning error here, we should instead Event and add a watch on potentially adoptable Machines
-		if ref == nil || ref.Kind != "KubeadmConfig" {
+		if ref == nil || ref.Kind != kubeadmConfigKind {
 			return errors.Errorf("unable to adopt Machine %v/%v: expected a ConfigRef of kind KubeadmConfig but instead found %v", m.Namespace, m.Name, ref)
 		}
 

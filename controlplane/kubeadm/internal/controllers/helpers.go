@@ -48,6 +48,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/secret"
 )
 
+const kubeadmConfigKind = "KubeadmConfig"
+
 func (r *KubeadmControlPlaneReconciler) reconcileKubeconfig(ctx context.Context, cluster *clusterv1.Cluster, kcp *controlplanev1.KubeadmControlPlane) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -189,7 +191,7 @@ func (r *KubeadmControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx conte
 	}
 
 	// Clone the bootstrap configuration
-	bootstrapRef, err := r.applyKubeadmConfig(ctx, kcp, cluster, bootstrapSpec, "", "")
+	bootstrapRef, err := r.createKubeadmConfig(ctx, kcp, cluster, bootstrapSpec)
 	if err != nil {
 		conditions.MarkFalse(kcp, controlplanev1.MachinesCreatedCondition, controlplanev1.BootstrapTemplateCloningFailedReason,
 			clusterv1.ConditionSeverityError, err.Error())
@@ -238,7 +240,49 @@ func (r *KubeadmControlPlaneReconciler) cleanupFromGeneration(ctx context.Contex
 	return kerrors.NewAggregate(errs)
 }
 
-func (r *KubeadmControlPlaneReconciler) applyKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec, name string, uid types.UID) (*corev1.ObjectReference, error) {
+func (r *KubeadmControlPlaneReconciler) createKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec) (*corev1.ObjectReference, error) {
+	kubeadmConfig := r.computeDesiredKubeadmConfig(kcp, cluster, spec, "", "")
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(kcpManagerName),
+	}
+	if err := r.Client.Patch(ctx, kubeadmConfig, client.Apply, patchOptions...); err != nil {
+		return nil, errors.Wrap(err, "failed to create KubeadmConfig: Apply failed")
+	}
+	return getReference(kubeadmConfig), nil
+}
+
+func (r *KubeadmControlPlaneReconciler) updateKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, kubeadmConfig *bootstrapv1.KubeadmConfig) (*corev1.ObjectReference, error) {
+	updatedKubeadmConfig := r.computeDesiredKubeadmConfig(kcp, cluster, &kubeadmConfig.Spec, kubeadmConfig.Name, kubeadmConfig.UID)
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(kcpManagerName),
+	}
+	if err := r.Client.Patch(ctx, updatedKubeadmConfig, client.Apply, patchOptions...); err != nil {
+		return nil, errors.Wrap(err, "failed to create KubeadmConfig: Apply failed")
+	}
+	return getReference(updatedKubeadmConfig), nil
+}
+
+func getReference(obj client.Object) *corev1.ObjectReference {
+	return &corev1.ObjectReference{
+		APIVersion: obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
+		Kind:       obj.GetObjectKind().GroupVersionKind().Kind,
+		Name:       obj.GetName(),
+		Namespace:  obj.GetNamespace(),
+		UID:        obj.GetUID(),
+	}
+}
+
+// computeDesiredKubeadmConfig computes the desired KubeadmConfig.
+// This KubeadmConfig will be used during reconciliation to:
+// * create a KubeadmConfig
+// * update an existing KubeadmConfig
+// Because we are using Server-Side-Apply we always have to calculate the full object.
+// There are small differences in how we calculate the KubeadmConfig depending on if it
+// is a create or update. Example: for a new KubeadmConfig we have to calculate a new name,
+// while for an existing Machine we have to use the name of the existing KubeadmConfig.
+func (r *KubeadmControlPlaneReconciler) computeDesiredKubeadmConfig(kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec, name string, uid types.UID) *bootstrapv1.KubeadmConfig {
 	// Create an owner reference without a controller reference because the owning controller is the machine controller
 	owner := metav1.OwnerReference{
 		APIVersion: controlplanev1.GroupVersion.String(),
@@ -249,7 +293,7 @@ func (r *KubeadmControlPlaneReconciler) applyKubeadmConfig(ctx context.Context, 
 
 	bootstrapConfig := &bootstrapv1.KubeadmConfig{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "KubeadmConfig",
+			Kind:       kubeadmConfigKind,
 			APIVersion: bootstrapv1.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -259,7 +303,7 @@ func (r *KubeadmControlPlaneReconciler) applyKubeadmConfig(ctx context.Context, 
 			Annotations:     kcp.Spec.MachineTemplate.ObjectMeta.Annotations,
 			OwnerReferences: []metav1.OwnerReference{owner},
 		},
-		Spec: *spec,
+		Spec: *spec.DeepCopy(),
 	}
 	if name != "" {
 		bootstrapConfig.Name = name
@@ -267,24 +311,7 @@ func (r *KubeadmControlPlaneReconciler) applyKubeadmConfig(ctx context.Context, 
 	if uid != "" {
 		bootstrapConfig.UID = uid
 	}
-
-	patchOptions := []client.PatchOption{
-		client.ForceOwnership,
-		client.FieldOwner(kcpManagerName),
-	}
-	if err := r.Client.Patch(ctx, bootstrapConfig, client.Apply, patchOptions...); err != nil {
-		return nil, errors.Wrap(err, "failed to create KubeadmConfig: Apply failed")
-	}
-
-	bootstrapRef := &corev1.ObjectReference{
-		APIVersion: bootstrapv1.GroupVersion.String(),
-		Kind:       "KubeadmConfig",
-		Name:       bootstrapConfig.GetName(),
-		Namespace:  bootstrapConfig.GetNamespace(),
-		UID:        bootstrapConfig.GetUID(),
-	}
-
-	return bootstrapRef, nil
+	return bootstrapConfig
 }
 
 func (r *KubeadmControlPlaneReconciler) createInfraMachine(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster) (*corev1.ObjectReference, error) {
