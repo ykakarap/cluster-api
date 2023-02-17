@@ -58,6 +58,7 @@ func NeedsRollout(reconciliationTime, rolloutAfter *metav1.Time, rolloutBefore *
 // matches a given KCP infra template.
 // Note: Differences to the labels and annotations on the infrastructure machine are not considered for matching
 // criteria, because changes to labels and annotations are propagated in-place to the infrastructure machines.
+// TODO: This function will be renamed in a follow-up PR to something better. (ex: MatchesInfraMachine).
 func MatchesTemplateClonedFrom(infraConfigs map[string]*unstructured.Unstructured, kcp *controlplanev1.KubeadmControlPlane) collections.Func {
 	return func(machine *clusterv1.Machine) bool {
 		if machine == nil {

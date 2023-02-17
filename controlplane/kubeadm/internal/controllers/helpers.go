@@ -241,7 +241,8 @@ func (r *KubeadmControlPlaneReconciler) cleanupFromGeneration(ctx context.Contex
 }
 
 func (r *KubeadmControlPlaneReconciler) createKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec) (*corev1.ObjectReference, error) {
-	kubeadmConfig := r.computeDesiredKubeadmConfig(kcp, cluster, spec, "", "")
+	// FIXMe(ykakarap) Explain why we call this with spec.
+	kubeadmConfig := r.computeDesiredKubeadmConfig(kcp, cluster, spec, nil)
 	patchOptions := []client.PatchOption{
 		client.ForceOwnership,
 		client.FieldOwner(kcpManagerName),
@@ -253,7 +254,8 @@ func (r *KubeadmControlPlaneReconciler) createKubeadmConfig(ctx context.Context,
 }
 
 func (r *KubeadmControlPlaneReconciler) updateKubeadmConfig(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, kubeadmConfig *bootstrapv1.KubeadmConfig) (*corev1.ObjectReference, error) {
-	updatedKubeadmConfig := r.computeDesiredKubeadmConfig(kcp, cluster, &kubeadmConfig.Spec, kubeadmConfig.Name, kubeadmConfig.UID)
+	// FIXMe(ykakarap) Explain why we call this with spec in kubeadmconfig and not the once from KCP.
+	updatedKubeadmConfig := r.computeDesiredKubeadmConfig(kcp, cluster, &kubeadmConfig.Spec, kubeadmConfig)
 	patchOptions := []client.PatchOption{
 		client.ForceOwnership,
 		client.FieldOwner(kcpManagerName),
@@ -282,7 +284,7 @@ func getReference(obj client.Object) *corev1.ObjectReference {
 // There are small differences in how we calculate the KubeadmConfig depending on if it
 // is a create or update. Example: for a new KubeadmConfig we have to calculate a new name,
 // while for an existing Machine we have to use the name of the existing KubeadmConfig.
-func (r *KubeadmControlPlaneReconciler) computeDesiredKubeadmConfig(kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec, name string, uid types.UID) *bootstrapv1.KubeadmConfig {
+func (r *KubeadmControlPlaneReconciler) computeDesiredKubeadmConfig(kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1.KubeadmConfigSpec, existingKubeadmConfig *bootstrapv1.KubeadmConfig) *bootstrapv1.KubeadmConfig {
 	// Create an owner reference without a controller reference because the owning controller is the machine controller
 	owner := metav1.OwnerReference{
 		APIVersion: controlplanev1.GroupVersion.String(),
@@ -305,11 +307,9 @@ func (r *KubeadmControlPlaneReconciler) computeDesiredKubeadmConfig(kcp *control
 		},
 		Spec: *spec.DeepCopy(),
 	}
-	if name != "" {
-		bootstrapConfig.Name = name
-	}
-	if uid != "" {
-		bootstrapConfig.UID = uid
+	if existingKubeadmConfig != nil {
+		bootstrapConfig.Name = existingKubeadmConfig.Name
+		bootstrapConfig.UID = existingKubeadmConfig.UID
 	}
 	return bootstrapConfig
 }
