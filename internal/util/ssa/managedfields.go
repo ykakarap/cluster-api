@@ -98,7 +98,13 @@ func CleanUpManagedFieldsForSSAAdoption(ctx context.Context, obj client.Object, 
 
 	obj.SetManagedFields(managedFields)
 
-	return c.Patch(ctx, obj, client.MergeFrom(base))
+	patchRaw := client.MergeFrom(base)
+	if err := c.Patch(ctx, obj, patchRaw); err != nil {
+		return err
+	}
+
+	return nil
+	//return c.Patch(ctx, obj, client.MergeFrom(base))
 }
 
 // hasFieldsManagedBy returns true if any of the fields in obj are managed by manager.

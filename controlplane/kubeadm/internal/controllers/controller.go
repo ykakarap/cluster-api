@@ -448,6 +448,11 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 			return errors.Wrapf(err, "failed to clean up managedFields of Machine %s", klog.KObj(machine))
 		}
 
+		fixedMachine := &clusterv1.Machine{}
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(machine), fixedMachine); err != nil {
+			return err
+		}
+
 		updatedMachine, err := r.updateMachine(ctx, machine, controlPlane.KCP, controlPlane.Cluster)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update Machine: %s", klog.KObj(machine))

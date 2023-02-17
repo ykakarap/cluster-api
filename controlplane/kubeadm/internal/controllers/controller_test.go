@@ -580,7 +580,7 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 		InfraResources: map[string]*unstructured.Unstructured{existingMachine.Name: existingInfraMachine},
 	}
 
-	r := &KubeadmControlPlaneReconciler{Client: env}
+	r := &KubeadmControlPlaneReconciler{Client: env, APIReader: env}
 	// Run the sync. This mimics the run when ClusterAPI is updated to >= v1.4.0
 	g.Expect(r.syncMachines(ctx, controlPlane)).To(Succeed())
 
