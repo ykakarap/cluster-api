@@ -561,13 +561,13 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 			KubeadmConfigSpec: *bootstrapSpec,
 			MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
 				ObjectMeta: clusterv1.ObjectMeta{
-					Labels:      map[string]string{"new-label": "new-value"},
-					Annotations: map[string]string{"new-annotation": "new-value"},
+					Labels:      map[string]string{"old-label": "old-value"},
+					Annotations: map[string]string{"old-annotation": "old-value"},
 				},
 				InfrastructureRef:       *infraMachineTemplateRef,
-				NodeDrainTimeout:        duration10s,
-				NodeVolumeDetachTimeout: duration10s,
-				NodeDeletionTimeout:     duration10s,
+				NodeDrainTimeout:        duration5s,
+				NodeVolumeDetachTimeout: duration5s,
+				NodeDeletionTimeout:     duration5s,
 			},
 		},
 	}
@@ -581,28 +581,12 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	}
 
 	r := &KubeadmControlPlaneReconciler{Client: env}
+	// Run the sync. This mimics the run when ClusterAPI is updated to >= v1.4.0
 	g.Expect(r.syncMachines(ctx, controlPlane)).To(Succeed())
 
 	// Get the updated Machine
 	updatedMachine := &clusterv1.Machine{}
 	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingMachine), updatedMachine)).To(Succeed())
-
-	// Verify the in-place mutating values are propagated
-	g.Expect(updatedMachine.Labels).To(HaveKeyWithValue("new-label", "new-value"))
-	g.Expect(updatedMachine.Labels).NotTo(HaveKey("old-label"))
-	g.Expect(updatedMachine.Annotations).To(HaveKeyWithValue("new-annotation", "new-value"))
-	g.Expect(updatedMachine.Annotations).NotTo(HaveKey("old-annotation"))
-	g.Expect(updatedMachine.Spec.NodeDrainTimeout).To(Equal(duration10s))
-	g.Expect(updatedMachine.Spec.NodeDeletionTimeout).To(Equal(duration10s))
-	g.Expect(updatedMachine.Spec.NodeVolumeDetachTimeout).To(Equal(duration10s))
-
-	// Verify other fields are unchanged
-	g.Expect(updatedMachine.Spec.Version).To(Equal(existingMachine.Spec.Version))
-	g.Expect(updatedMachine.Spec.FailureDomain).To(Equal(existingMachine.Spec.FailureDomain))
-	g.Expect(updatedMachine.Spec.InfrastructureRef).To(Equal(existingMachine.Spec.InfrastructureRef))
-	g.Expect(updatedMachine.Spec.ClusterName).To(Equal(existingMachine.Spec.ClusterName))
-	g.Expect(updatedMachine.Spec.Bootstrap.ConfigRef).To(Equal(existingMachine.Spec.Bootstrap.ConfigRef))
-
 	// Verify the managed fields
 	g.Expect(updatedMachine.ManagedFields).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
 	g.Expect(updatedMachine.ManagedFields).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
@@ -610,16 +594,6 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	// Get the updated KubeadmConfig
 	updatedKubeadmConfig := &bootstrapv1.KubeadmConfig{}
 	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig)).To(Succeed())
-
-	// Verify the in-place mutating values are propagated
-	g.Expect(updatedKubeadmConfig.Labels).To(HaveKeyWithValue("new-label", "new-value"))
-	g.Expect(updatedKubeadmConfig.Labels).NotTo(HaveKey("old-label"))
-	g.Expect(updatedKubeadmConfig.Annotations).To(HaveKeyWithValue("new-annotation", "new-value"))
-	g.Expect(updatedKubeadmConfig.Annotations).NotTo(HaveKey("old-annotation"))
-
-	// Verify other fields are unchanged
-	g.Expect(updatedKubeadmConfig.Spec).To(Equal(existingKubeadmConfig.Spec))
-
 	// Verify the managed fields
 	g.Expect(updatedKubeadmConfig.ManagedFields).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
 	g.Expect(updatedKubeadmConfig.ManagedFields).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
@@ -630,17 +604,68 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	updatedInfraMachine.SetName(existingInfraMachine.GetName())
 	updatedInfraMachine.SetNamespace(namespace.Name)
 	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine)).To(Succeed())
-
-	// Verify the in-place mutating values are propagated
-	g.Expect(updatedInfraMachine.GetLabels()).To(HaveKeyWithValue("new-label", "new-value"))
-	g.Expect(updatedInfraMachine.GetLabels()).NotTo(HaveKey("old-label"))
-	g.Expect(updatedInfraMachine.GetAnnotations()).To(HaveKeyWithValue("new-annotation", "new-value"))
-	g.Expect(updatedInfraMachine.GetAnnotations()).NotTo(HaveKey("old-annotation"))
-
 	// Verify the managed fields
 	g.Expect(updatedInfraMachine.GetManagedFields()).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
 	g.Expect(updatedInfraMachine.GetManagedFields()).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
 
+	// Update KCP
+	kcp.Spec.MachineTemplate.ObjectMeta.Labels = map[string]string{"new-label": "new-value"}
+	kcp.Spec.MachineTemplate.ObjectMeta.Annotations = map[string]string{"new-annotation": "new-value"}
+	kcp.Spec.MachineTemplate.NodeDrainTimeout = duration10s
+	kcp.Spec.MachineTemplate.NodeDeletionTimeout = duration10s
+	kcp.Spec.MachineTemplate.NodeVolumeDetachTimeout = duration10s
+
+	controlPlane.Machines[existingMachine.Name] = updatedMachine
+	controlPlane.KubeadmConfigs[existingMachine.Name] = updatedKubeadmConfig
+	controlPlane.InfraResources[existingMachine.Name] = updatedInfraMachine
+	// Run the sync to propagate in-place mutable changes
+	g.Expect(r.syncMachines(ctx, controlPlane)).To(Succeed())
+
+	// Get the updated Machine
+	updatedMachine2 := &clusterv1.Machine{}
+	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingMachine), updatedMachine2)).To(Succeed())
+
+	// Verify the in-place mutating values are propagated
+	g.Expect(updatedMachine2.Labels).To(HaveKeyWithValue("new-label", "new-value"))
+	g.Expect(updatedMachine2.Labels).NotTo(HaveKey("old-label"))
+	g.Expect(updatedMachine2.Annotations).To(HaveKeyWithValue("new-annotation", "new-value"))
+	g.Expect(updatedMachine2.Annotations).NotTo(HaveKey("old-annotation"))
+	g.Expect(updatedMachine2.Spec.NodeDrainTimeout).To(Equal(duration10s))
+	g.Expect(updatedMachine2.Spec.NodeDeletionTimeout).To(Equal(duration10s))
+	g.Expect(updatedMachine2.Spec.NodeVolumeDetachTimeout).To(Equal(duration10s))
+
+	// Verify other fields are unchanged
+	g.Expect(updatedMachine2.Spec.Version).To(Equal(existingMachine.Spec.Version))
+	g.Expect(updatedMachine2.Spec.FailureDomain).To(Equal(existingMachine.Spec.FailureDomain))
+	g.Expect(updatedMachine2.Spec.InfrastructureRef).To(Equal(existingMachine.Spec.InfrastructureRef))
+	g.Expect(updatedMachine2.Spec.ClusterName).To(Equal(existingMachine.Spec.ClusterName))
+	g.Expect(updatedMachine2.Spec.Bootstrap.ConfigRef).To(Equal(existingMachine.Spec.Bootstrap.ConfigRef))
+
+	// Get the updated KubeadmConfig
+	updatedKubeadmConfig2 := &bootstrapv1.KubeadmConfig{}
+	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig2)).To(Succeed())
+
+	// Verify the in-place mutating values are propagated
+	g.Expect(updatedKubeadmConfig2.Labels).To(HaveKeyWithValue("new-label", "new-value"))
+	g.Expect(updatedKubeadmConfig2.Labels).NotTo(HaveKey("old-label"))
+	g.Expect(updatedKubeadmConfig2.Annotations).To(HaveKeyWithValue("new-annotation", "new-value"))
+	g.Expect(updatedKubeadmConfig2.Annotations).NotTo(HaveKey("old-annotation"))
+
+	// Verify other fields are unchanged
+	g.Expect(updatedKubeadmConfig2.Spec).To(Equal(existingKubeadmConfig.Spec))
+
+	// Get the updated InfraMachine
+	updatedInfraMachine2 := &unstructured.Unstructured{}
+	updatedInfraMachine2.SetGroupVersionKind(existingInfraMachine.GroupVersionKind())
+	updatedInfraMachine2.SetName(existingInfraMachine.GetName())
+	updatedInfraMachine2.SetNamespace(namespace.Name)
+	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine2)).To(Succeed())
+
+	// Verify the in-place mutating values are propagated
+	g.Expect(updatedInfraMachine2.GetLabels()).To(HaveKeyWithValue("new-label", "new-value"))
+	g.Expect(updatedInfraMachine2.GetLabels()).NotTo(HaveKey("old-label"))
+	g.Expect(updatedInfraMachine2.GetAnnotations()).To(HaveKeyWithValue("new-annotation", "new-value"))
+	g.Expect(updatedInfraMachine2.GetAnnotations()).NotTo(HaveKey("old-annotation"))
 }
 
 func TestReconcileClusterNoEndpoints(t *testing.T) {
