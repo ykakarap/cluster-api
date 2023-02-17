@@ -508,6 +508,115 @@ func TestCloneConfigsAndGenerateMachineFail(t *testing.T) {
 	}))
 }
 
+func TestKubeadmControlPlaneReconciler_computeDesiredKubeadmConfig(t *testing.T) {
+	cluster := &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "testCluster",
+			Namespace: metav1.NamespaceDefault,
+		},
+	}
+	kcpMachineTemplateObjectMeta := clusterv1.ObjectMeta{
+		Labels: map[string]string{
+			"machineTemplateLabel": "machineTemplateLabelValue",
+		},
+		Annotations: map[string]string{
+			"machineTemplateAnnotation": "machineTemplateAnnotationValue",
+		},
+	}
+	kcp := &controlplanev1.KubeadmControlPlane{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "testControlPlane",
+			Namespace: cluster.Namespace,
+		},
+		Spec: controlplanev1.KubeadmControlPlaneSpec{
+			Version: "v1.16.6",
+			MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
+				ObjectMeta: kcpMachineTemplateObjectMeta,
+			},
+		},
+	}
+	kubeadmConfigSpec := &bootstrapv1.KubeadmConfigSpec{
+		Users: []bootstrapv1.User{
+			{Name: "test-user"},
+		},
+	}
+	expectedOwner := metav1.OwnerReference{
+		Kind:       "KubeadmControlPlane",
+		APIVersion: controlplanev1.GroupVersion.String(),
+		Name:       kcp.Name,
+		UID:        kcp.UID,
+	}
+	t.Run("should return the correct KubeadmConfig when creating a new KubeadmConfig", func(t *testing.T) {
+		g := NewWithT(t)
+		got := (&KubeadmControlPlaneReconciler{}).computeDesiredKubeadmConfig(kcp, cluster, kubeadmConfigSpec, nil)
+		expectedKind := "KubeadmConfig"
+		expectedAPIVersion := bootstrapv1.GroupVersion.String()
+
+		g.Expect(got.Name).To(HavePrefix(kcp.Name))
+		g.Expect(got.Namespace).To(Equal(kcp.Namespace))
+		g.Expect(got.Kind).To(Equal(expectedKind))
+		g.Expect(got.APIVersion).To(Equal(expectedAPIVersion))
+		g.Expect(got.OwnerReferences).To(HaveLen(1))
+		g.Expect(got.OwnerReferences).To(ContainElement(expectedOwner))
+		g.Expect(got.Spec).To(Equal(*kubeadmConfigSpec))
+
+		// Verify the labels are propagated from the MachineTemplate
+		// Verify that the machineTemplate.ObjectMeta has been propagated to the Machine.
+		for k, v := range kcp.Spec.MachineTemplate.ObjectMeta.Labels {
+			g.Expect(got.Labels[k]).To(Equal(v))
+		}
+		g.Expect(got.Labels[clusterv1.ClusterNameLabel]).To(Equal(cluster.Name))
+		g.Expect(got.Labels[clusterv1.MachineControlPlaneLabel]).To(Equal(""))
+		g.Expect(got.Labels[clusterv1.MachineControlPlaneNameLabel]).To(Equal(kcp.Name))
+
+		// Verify the annotations are propagated from the MachineTemplate
+		g.Expect(got.Annotations).To(Equal(kcp.Spec.MachineTemplate.ObjectMeta.Annotations))
+	})
+	t.Run("should return the correct KubeadmConfig when updating an existing KubeadmConfig", func(t *testing.T) {
+		g := NewWithT(t)
+		expectedKind := "KubeadmConfig"
+		expectedAPIVersion := bootstrapv1.GroupVersion.String()
+
+		existingKubeadmConfig := &bootstrapv1.KubeadmConfig{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "KubeadmConfig",
+				APIVersion: bootstrapv1.GroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				UID:    types.UID("abc-123-existing-kubeadmconfig"),
+				Name:   "test-kubeadmconfig",
+				Labels: map[string]string{"old-key": "old-value"},
+			},
+			Spec: *kubeadmConfigSpec.DeepCopy(),
+		}
+
+		got := (&KubeadmControlPlaneReconciler{}).computeDesiredKubeadmConfig(kcp, cluster, kubeadmConfigSpec, existingKubeadmConfig)
+		g.Expect(got.UID).To(Equal(existingKubeadmConfig.UID))   // Verify that UID is the same
+		g.Expect(got.Name).To(Equal(existingKubeadmConfig.Name)) // Verify that Name is the same
+		g.Expect(got.Namespace).To(Equal(kcp.Namespace))
+		g.Expect(got.Kind).To(Equal(expectedKind))
+		g.Expect(got.APIVersion).To(Equal(expectedAPIVersion))
+		g.Expect(got.OwnerReferences).To(HaveLen(1))
+		g.Expect(got.OwnerReferences).To(ContainElement(expectedOwner))
+		g.Expect(got.Spec).To(BeComparableTo(*kubeadmConfigSpec))
+
+		// Verify the labels are propagated from the MachineTemplate
+		// Verify that the machineTemplate.ObjectMeta has been propagated to the Machine.
+		for k, v := range kcp.Spec.MachineTemplate.ObjectMeta.Labels {
+			g.Expect(got.Labels[k]).To(Equal(v))
+		}
+		g.Expect(got.Labels[clusterv1.ClusterNameLabel]).To(Equal(cluster.Name))
+		g.Expect(got.Labels[clusterv1.MachineControlPlaneLabel]).To(Equal(""))
+		g.Expect(got.Labels[clusterv1.MachineControlPlaneNameLabel]).To(Equal(kcp.Name))
+
+		// Verify the old labels are not present on the Bootstrap config
+		g.Expect(got.Labels).NotTo(HaveKey("old-label"))
+
+		// Verify the annotations are propagated from the MachineTemplate
+		g.Expect(got.Annotations).To(Equal(kcp.Spec.MachineTemplate.ObjectMeta.Annotations))
+	})
+}
+
 func TestKubeadmControlPlaneReconciler_computeDesiredMachine(t *testing.T) {
 	cluster := &clusterv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -681,234 +790,6 @@ func TestKubeadmControlPlaneReconciler_computeDesiredMachine(t *testing.T) {
 		g.Expect(kcp.Spec.MachineTemplate.ObjectMeta.Labels).NotTo(HaveKey(clusterv1.MachineControlPlaneNameLabel))
 		g.Expect(kcp.Spec.MachineTemplate.ObjectMeta.Annotations).NotTo(HaveKey(controlplanev1.KubeadmClusterConfigurationAnnotation))
 	})
-}
-
-func TestKubeadmControlPlaneReconciler_createKubeadmConfig(t *testing.T) {
-	setup := func(t *testing.T, g *WithT) *corev1.Namespace {
-		t.Helper()
-
-		t.Log("Creating the namespace")
-		ns, err := env.CreateNamespace(ctx, "test-applykubeadmconfig")
-		g.Expect(err).To(BeNil())
-
-		return ns
-	}
-
-	teardown := func(t *testing.T, g *WithT, ns *corev1.Namespace) {
-		t.Helper()
-
-		t.Log("Deleting the namespace")
-		g.Expect(env.Delete(ctx, ns)).To(Succeed())
-	}
-
-	g := NewWithT(t)
-	namespace := setup(t, g)
-	defer teardown(t, g, namespace)
-
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "testCluster",
-			Namespace: namespace.Name,
-		},
-	}
-
-	kubeadmConfigSpec := &bootstrapv1.KubeadmConfigSpec{
-		Format: "cloud-config",
-		Users: []bootstrapv1.User{
-			{Name: "test-user"},
-		},
-	}
-	kcp := &controlplanev1.KubeadmControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-control-plane",
-			Namespace: namespace.Name,
-		},
-		Spec: controlplanev1.KubeadmControlPlaneSpec{
-			Version:           "v1.25.3",
-			KubeadmConfigSpec: *kubeadmConfigSpec,
-			MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
-				ObjectMeta: clusterv1.ObjectMeta{
-					Labels: map[string]string{
-						"label-1": "value-1",
-					},
-					Annotations: map[string]string{
-						"annotation-1": "value-1",
-					},
-				},
-				InfrastructureRef: corev1.ObjectReference{
-					Kind:       "GenericInfrastructureMachineTemplate",
-					Namespace:  namespace.Name,
-					Name:       "control-plane-infra-machine-template",
-					APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
-				},
-			},
-		},
-	}
-
-	// Creat the KCP object
-	g.Expect(env.Create(ctx, kcp)).To(Succeed())
-
-	expectedReferenceKind := "KubeadmConfig"
-	expectedReferenceAPIVersion := bootstrapv1.GroupVersion.String()
-	expectedOwner := metav1.OwnerReference{
-		Kind:       "KubeadmControlPlane",
-		APIVersion: controlplanev1.GroupVersion.String(),
-		Name:       kcp.Name,
-		UID:        kcp.UID,
-	}
-	r := &KubeadmControlPlaneReconciler{Client: env}
-	// Create the KubeadmConfig
-	got, err := r.createKubeadmConfig(ctx, kcp, cluster, kubeadmConfigSpec)
-	g.Expect(err).To(BeNil())
-	g.Expect(got).NotTo(BeNil())
-	g.Expect(got.Name).To(HavePrefix(kcp.Name))
-	g.Expect(got.Namespace).To(Equal(kcp.Namespace))
-	g.Expect(got.Kind).To(Equal(expectedReferenceKind))
-	g.Expect(got.APIVersion).To(Equal(expectedReferenceAPIVersion))
-
-	bootstrapConfig := &bootstrapv1.KubeadmConfig{}
-	key := client.ObjectKey{Name: got.Name, Namespace: got.Namespace}
-	g.Expect(env.Get(ctx, key, bootstrapConfig)).To(Succeed())
-	g.Expect(bootstrapConfig.OwnerReferences).To(HaveLen(1))
-	g.Expect(bootstrapConfig.OwnerReferences).To(ContainElement(expectedOwner))
-	g.Expect(bootstrapConfig.Spec).To(BeComparableTo(*kubeadmConfigSpec))
-
-	// Verify the labels are propagated from the MachineTemplate
-	// Verify that the machineTemplate.ObjectMeta has been propagated to the Machine.
-	for k, v := range kcp.Spec.MachineTemplate.ObjectMeta.Labels {
-		g.Expect(bootstrapConfig.Labels[k]).To(Equal(v))
-	}
-	g.Expect(bootstrapConfig.Labels[clusterv1.ClusterNameLabel]).To(Equal(cluster.Name))
-	g.Expect(bootstrapConfig.Labels[clusterv1.MachineControlPlaneLabel]).To(Equal(""))
-	g.Expect(bootstrapConfig.Labels[clusterv1.MachineControlPlaneNameLabel]).To(Equal(kcp.Name))
-
-	// Verify the annotations are propagated from the MachineTemplate
-	g.Expect(bootstrapConfig.Annotations).To(Equal(kcp.Spec.MachineTemplate.ObjectMeta.Annotations))
-}
-
-func TestKubeadmControlPlaneReconciler_updateKubeadmConfig(t *testing.T) {
-	setup := func(t *testing.T, g *WithT) *corev1.Namespace {
-		t.Helper()
-
-		t.Log("Creating the namespace")
-		ns, err := env.CreateNamespace(ctx, "test-applykubeadmconfig")
-		g.Expect(err).To(BeNil())
-
-		return ns
-	}
-
-	teardown := func(t *testing.T, g *WithT, ns *corev1.Namespace) {
-		t.Helper()
-
-		t.Log("Deleting the namespace")
-		g.Expect(env.Delete(ctx, ns)).To(Succeed())
-	}
-
-	g := NewWithT(t)
-	namespace := setup(t, g)
-	defer teardown(t, g, namespace)
-
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "testCluster",
-			Namespace: namespace.Name,
-		},
-	}
-
-	kubeadmConfigSpec := &bootstrapv1.KubeadmConfigSpec{
-		Format: "cloud-config",
-		Users: []bootstrapv1.User{
-			{Name: "test-user"},
-		},
-	}
-	kcp := &controlplanev1.KubeadmControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-control-plane",
-			Namespace: namespace.Name,
-		},
-		Spec: controlplanev1.KubeadmControlPlaneSpec{
-			Version:           "v1.25.3",
-			KubeadmConfigSpec: *kubeadmConfigSpec,
-			MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
-				ObjectMeta: clusterv1.ObjectMeta{
-					Labels: map[string]string{
-						"label-1": "value-1",
-					},
-					Annotations: map[string]string{
-						"annotation-1": "value-1",
-					},
-				},
-				InfrastructureRef: corev1.ObjectReference{
-					Kind:       "GenericInfrastructureMachineTemplate",
-					Namespace:  namespace.Name,
-					Name:       "control-plane-infra-machine-template",
-					APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
-				},
-			},
-		},
-	}
-
-	// Creat the KCP object
-	g.Expect(env.Create(ctx, kcp)).To(Succeed())
-
-	expectedReferenceKind := "KubeadmConfig"
-	expectedReferenceAPIVersion := bootstrapv1.GroupVersion.String()
-	expectedOwner := metav1.OwnerReference{
-		Kind:       "KubeadmControlPlane",
-		APIVersion: controlplanev1.GroupVersion.String(),
-		Name:       kcp.Name,
-		UID:        kcp.UID,
-	}
-	r := &KubeadmControlPlaneReconciler{Client: env}
-	oldKCPMachineTemplateLabels := kcp.Spec.MachineTemplate.ObjectMeta.Labels
-	// Set new labels on KCP MachineTemplate
-	kcp.Spec.MachineTemplate.ObjectMeta.Labels = map[string]string{"label-2": "value-2"}
-
-	// Create a KubeadmConfig that will be updated
-	bootstrapConfig := &bootstrapv1.KubeadmConfig{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "KubeadmConfig",
-			APIVersion: bootstrapv1.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-kubeadmconfig",
-			Namespace: namespace.Name,
-			Labels:    oldKCPMachineTemplateLabels,
-		},
-		Spec: *kubeadmConfigSpec.DeepCopy(),
-	}
-	g.Expect(env.Patch(ctx, bootstrapConfig, client.Apply, client.ForceOwnership, client.FieldOwner(kcpManagerName))).To(Succeed())
-
-	// Update the KubeadmConfig
-	got, err := r.updateKubeadmConfig(ctx, kcp, cluster, bootstrapConfig)
-	g.Expect(err).To(BeNil())
-	g.Expect(got).NotTo(BeNil())
-	g.Expect(got.UID).To(Equal(bootstrapConfig.UID))   // Verify that UID is the same
-	g.Expect(got.Name).To(Equal(bootstrapConfig.Name)) // Verify that Name is the same
-	g.Expect(got.Namespace).To(Equal(kcp.Namespace))
-	g.Expect(got.Kind).To(Equal(expectedReferenceKind))
-	g.Expect(got.APIVersion).To(Equal(expectedReferenceAPIVersion))
-
-	updatedBootstrapConfig := &bootstrapv1.KubeadmConfig{}
-	key := client.ObjectKey{Name: got.Name, Namespace: got.Namespace}
-	g.Expect(env.Get(ctx, key, updatedBootstrapConfig)).To(Succeed())
-	g.Expect(updatedBootstrapConfig.OwnerReferences).To(HaveLen(1))
-	g.Expect(updatedBootstrapConfig.OwnerReferences).To(ContainElement(expectedOwner))
-	g.Expect(updatedBootstrapConfig.Spec).To(BeComparableTo(*kubeadmConfigSpec))
-
-	// Verify the labels are propagated from the MachineTemplate
-	// Verify that the machineTemplate.ObjectMeta has been propagated to the Machine.
-	for k, v := range kcp.Spec.MachineTemplate.ObjectMeta.Labels {
-		g.Expect(updatedBootstrapConfig.Labels[k]).To(Equal(v))
-	}
-	g.Expect(updatedBootstrapConfig.Labels[clusterv1.ClusterNameLabel]).To(Equal(cluster.Name))
-	g.Expect(updatedBootstrapConfig.Labels[clusterv1.MachineControlPlaneLabel]).To(Equal(""))
-	g.Expect(updatedBootstrapConfig.Labels[clusterv1.MachineControlPlaneNameLabel]).To(Equal(kcp.Name))
-
-	// Verify the old labels are not present on the Bootstrap config
-	for k := range oldKCPMachineTemplateLabels {
-		g.Expect(updatedBootstrapConfig.Labels).NotTo(HaveKey(k))
-	}
 }
 
 func TestKubeadmControlPlaneReconciler_adoptKubeconfigSecret(t *testing.T) {

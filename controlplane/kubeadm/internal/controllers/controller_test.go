@@ -24,6 +24,7 @@ import (
 	"crypto/x509/pkix"
 	"fmt"
 	"math/big"
+	"sigs.k8s.io/cluster-api/internal/util/ssa"
 	"sync"
 	"testing"
 	"time"
@@ -388,6 +389,258 @@ func TestReconcilePaused(t *testing.T) {
 	kcp.ObjectMeta.Annotations[clusterv1.PausedAnnotation] = "paused"
 	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: util.ObjectKey(kcp)})
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
+	/*
+		CASE I:
+			- Update an existing machine (created using the old manager).
+			  - The updated machine should have the new labels, annotations and node timeout values.
+			  - The old manager entry should be dropped.
+			- Update an existing inframachine (created using the old manager).
+			  - The updated inframachine should have the new labels and annotations.
+			  - The old manager entry should be dropped.
+			- Update an existing KubeadmConfig (created using the old manager
+			  - The updated KubeadmConfig should have the new labels and annotations.
+			  - The old manager entry should be dropped.
+	*/
+
+	setup := func(t *testing.T, g *WithT) *corev1.Namespace {
+		t.Helper()
+
+		t.Log("Creating the namespace")
+		ns, err := env.CreateNamespace(ctx, "test-applykubeadmconfig")
+		g.Expect(err).To(BeNil())
+
+		return ns
+	}
+
+	teardown := func(t *testing.T, g *WithT, ns *corev1.Namespace) {
+		t.Helper()
+
+		t.Log("Deleting the namespace")
+		g.Expect(env.Delete(ctx, ns)).To(Succeed())
+	}
+
+	g := NewWithT(t)
+	namespace := setup(t, g)
+	defer teardown(t, g, namespace)
+
+	duration5s := &metav1.Duration{Duration: 5 * time.Second}
+	duration10s := &metav1.Duration{Duration: 10 * time.Second}
+
+	cluster := &clusterv1.Cluster{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Cluster",
+			APIVersion: clusterv1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: namespace.Name,
+		},
+	}
+
+	genericInfrastructureMachineTemplate := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       "GenericInfrastructureMachineTemplate",
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+			"metadata": map[string]interface{}{
+				"name":      "infra-foo",
+				"namespace": cluster.Namespace,
+			},
+			"spec": map[string]interface{}{
+				"template": map[string]interface{}{
+					"spec": map[string]interface{}{
+						"hello": "world",
+					},
+				},
+			},
+		},
+	}
+	infraMachineTemplateRef := &corev1.ObjectReference{
+		Kind:       "GenericInfrastructureMachineTemplate",
+		Namespace:  namespace.Name,
+		Name:       "infra-foo",
+		APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+	}
+	g.Expect(env.Create(ctx, genericInfrastructureMachineTemplate, client.FieldOwner("manager"))).To(Succeed())
+
+	// Existing InfraMachine
+	existingInfraMachine := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       "GenericInfrastructureMachine",
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+			"metadata": map[string]interface{}{
+				"name":      "existing-inframachine",
+				"namespace": cluster.Namespace,
+				"labels":    map[string]string{"old-label": "old-value"},
+				"annotations": map[string]string{
+					"old-annotation": "old-value",
+					clusterv1.TemplateClonedFromNameAnnotation: "infra-foo",
+				},
+			},
+			"spec": map[string]interface{}{},
+		},
+	}
+	infraMachineRef := &corev1.ObjectReference{
+		Kind:       "GenericInfrastructureMachine",
+		Namespace:  namespace.Name,
+		Name:       "existing-inframachine",
+		APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+	}
+	// Note: use "manager" as the field owner to mimic the manager used before ClusterAPI v1.4.0.
+	g.Expect(env.Create(ctx, existingInfraMachine, client.FieldOwner("manager"))).To(Succeed())
+
+	// Existing KubeadmConfig
+	bootstrapSpec := &bootstrapv1.KubeadmConfigSpec{
+		JoinConfiguration: &bootstrapv1.JoinConfiguration{},
+	}
+	existingKubeadmConfig := &bootstrapv1.KubeadmConfig{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "KubeadmConfig",
+			APIVersion: bootstrapv1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "existing-kubeadmconfig",
+			Namespace:   namespace.Name,
+			Labels:      map[string]string{"old-label": "old-value"},
+			Annotations: map[string]string{"old-annotation": "old-value"},
+		},
+		Spec: *bootstrapSpec,
+	}
+	bootstrapRef := &corev1.ObjectReference{
+		Kind:       "KubeadmConfig",
+		Namespace:  namespace.Name,
+		Name:       "existing-kubeadmconfig",
+		APIVersion: bootstrapv1.GroupVersion.String(),
+	}
+	// Note: use "manager" as the field owner to mimic the manager used before ClusterAPI v1.4.0.
+	g.Expect(env.Create(ctx, existingKubeadmConfig, client.FieldOwner("manager"))).To(Succeed())
+
+	// Existing Machine
+	fd := pointer.String("fd1")
+	existingMachine := &clusterv1.Machine{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Machine",
+			APIVersion: clusterv1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "existing-machine",
+			Namespace:   namespace.Name,
+			Labels:      map[string]string{"old-label": "old-value"},
+			Annotations: map[string]string{"old-annotation": "old-value"},
+		},
+		Spec: clusterv1.MachineSpec{
+			ClusterName: cluster.Name,
+			Bootstrap: clusterv1.Bootstrap{
+				ConfigRef: bootstrapRef,
+			},
+			InfrastructureRef:       *infraMachineRef,
+			Version:                 pointer.String("v1.25.3"),
+			FailureDomain:           fd,
+			NodeDrainTimeout:        duration5s,
+			NodeVolumeDetachTimeout: duration5s,
+			NodeDeletionTimeout:     duration5s,
+		},
+	}
+	// Note: use "manager" as the field owner to mimic the manager used before ClusterAPI v1.4.0.
+	g.Expect(env.Create(ctx, existingMachine, client.FieldOwner("manager"))).To(Succeed())
+
+	kcp := &controlplanev1.KubeadmControlPlane{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "KubeadmControlPlane",
+			APIVersion: controlplanev1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID("abc-123-control-plane"),
+			Name:      "existing-kcp",
+			Namespace: namespace.Name,
+		},
+		Spec: controlplanev1.KubeadmControlPlaneSpec{
+			Version:           "v1.25.3",
+			KubeadmConfigSpec: *bootstrapSpec,
+			MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
+				ObjectMeta: clusterv1.ObjectMeta{
+					Labels:      map[string]string{"new-label": "new-value"},
+					Annotations: map[string]string{"new-annotation": "new-value"},
+				},
+				InfrastructureRef:       *infraMachineTemplateRef,
+				NodeDrainTimeout:        duration10s,
+				NodeVolumeDetachTimeout: duration10s,
+				NodeDeletionTimeout:     duration10s,
+			},
+		},
+	}
+
+	controlPlane := &internal.ControlPlane{
+		KCP:            kcp,
+		Cluster:        cluster,
+		Machines:       collections.Machines{existingMachine.Name: existingMachine},
+		KubeadmConfigs: map[string]*bootstrapv1.KubeadmConfig{existingMachine.Name: existingKubeadmConfig},
+		InfraResources: map[string]*unstructured.Unstructured{existingMachine.Name: existingInfraMachine},
+	}
+
+	r := &KubeadmControlPlaneReconciler{Client: env}
+	g.Expect(r.syncMachines(ctx, controlPlane)).To(Succeed())
+
+	// Get the updated Machine
+	updatedMachine := &clusterv1.Machine{}
+	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingMachine), updatedMachine)).To(Succeed())
+
+	// Verify the in-place mutating values are propagated
+	g.Expect(updatedMachine.Labels).To(HaveKeyWithValue("new-label", "new-value"))
+	g.Expect(updatedMachine.Labels).NotTo(HaveKey("old-label"))
+	g.Expect(updatedMachine.Annotations).To(HaveKeyWithValue("new-annotation", "new-value"))
+	g.Expect(updatedMachine.Annotations).NotTo(HaveKey("old-annotation"))
+	g.Expect(updatedMachine.Spec.NodeDrainTimeout).To(Equal(duration10s))
+	g.Expect(updatedMachine.Spec.NodeDeletionTimeout).To(Equal(duration10s))
+	g.Expect(updatedMachine.Spec.NodeVolumeDetachTimeout).To(Equal(duration10s))
+
+	// Verify other fields are unchanged
+	g.Expect(updatedMachine.Spec.Version).To(Equal(existingMachine.Spec.Version))
+	g.Expect(updatedMachine.Spec.FailureDomain).To(Equal(existingMachine.Spec.FailureDomain))
+	g.Expect(updatedMachine.Spec.InfrastructureRef).To(Equal(existingMachine.Spec.InfrastructureRef))
+	g.Expect(updatedMachine.Spec.ClusterName).To(Equal(existingMachine.Spec.ClusterName))
+	g.Expect(updatedMachine.Spec.Bootstrap.ConfigRef).To(Equal(existingMachine.Spec.Bootstrap.ConfigRef))
+
+	// Verify the managed fields
+	g.Expect(updatedMachine.ManagedFields).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
+	g.Expect(updatedMachine.ManagedFields).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
+
+	// Get the updated KubeadmConfig
+	updatedKubeadmConfig := &bootstrapv1.KubeadmConfig{}
+	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig)).To(Succeed())
+
+	// Verify the in-place mutating values are propagated
+	g.Expect(updatedKubeadmConfig.Labels).To(HaveKeyWithValue("new-label", "new-value"))
+	g.Expect(updatedKubeadmConfig.Labels).NotTo(HaveKey("old-label"))
+	g.Expect(updatedKubeadmConfig.Annotations).To(HaveKeyWithValue("new-annotation", "new-value"))
+	g.Expect(updatedKubeadmConfig.Annotations).NotTo(HaveKey("old-annotation"))
+
+	// Verify other fields are unchanged
+	g.Expect(updatedKubeadmConfig.Spec).To(Equal(existingKubeadmConfig.Spec))
+
+	// Verify the managed fields
+	g.Expect(updatedKubeadmConfig.ManagedFields).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
+	g.Expect(updatedKubeadmConfig.ManagedFields).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
+
+	// Get the updated InfraMachine
+	updatedInfraMachine := &unstructured.Unstructured{}
+	updatedInfraMachine.SetGroupVersionKind(existingInfraMachine.GroupVersionKind())
+	updatedInfraMachine.SetName(existingInfraMachine.GetName())
+	updatedInfraMachine.SetNamespace(namespace.Name)
+	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine)).To(Succeed())
+
+	// Verify the in-place mutating values are propagated
+	g.Expect(updatedInfraMachine.GetLabels()).To(HaveKeyWithValue("new-label", "new-value"))
+	g.Expect(updatedInfraMachine.GetLabels()).NotTo(HaveKey("old-label"))
+	g.Expect(updatedInfraMachine.GetAnnotations()).To(HaveKeyWithValue("new-annotation", "new-value"))
+	g.Expect(updatedInfraMachine.GetAnnotations()).NotTo(HaveKey("old-annotation"))
+
+	// Verify the managed fields
+	g.Expect(updatedInfraMachine.GetManagedFields()).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
+	g.Expect(updatedInfraMachine.GetManagedFields()).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
+
 }
 
 func TestReconcileClusterNoEndpoints(t *testing.T) {

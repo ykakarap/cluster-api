@@ -350,13 +350,19 @@ func (r *KubeadmControlPlaneReconciler) updateInfraMachine(ctx context.Context, 
 		Name:       kcp.Name,
 		UID:        kcp.UID,
 	}
-	infraTemplateRef := kcp.Spec.MachineTemplate.InfrastructureRef
+	// Note: We do not want to pick up the InfraMachineTemplate from KCP as that could have changed. If the template
+	// changes, the machines and the inframachines will be rolledout. Here, we should only pick up the in-place
+	// propagating changes. Therefore, reuse the template the infra machine was created from.
+	infraTemplateRef, err := getTemplateRefFromInfraMachine(infraMachine, kcp)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to update InfrastructureMachine %s: failed to get InfrastructureMachineTemplate", klog.KObj(infraMachine))
+	}
 	updatedInfraRef, err := external.ApplyFromTemplate(ctx, &external.ApplyFromTemplateInput{
 		Manager:     kcpManagerName,
 		Name:        infraMachine.GetName(),
 		UID:         infraMachine.GetUID(),
 		Client:      r.Client,
-		TemplateRef: &infraTemplateRef,
+		TemplateRef: infraTemplateRef,
 		Namespace:   kcp.Namespace,
 		OwnerRef:    owner,
 		ClusterName: cluster.Name,
@@ -364,11 +370,26 @@ func (r *KubeadmControlPlaneReconciler) updateInfraMachine(ctx context.Context, 
 		Annotations: kcp.Spec.MachineTemplate.ObjectMeta.Annotations,
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to update Infrastructure Machine %s object from Template %s",
+		return nil, errors.Wrapf(err, "failed to update InfrastructureMachine %s object from Template %s",
 			klog.KObj(infraMachine),
 			klog.KRef(infraTemplateRef.Namespace, infraTemplateRef.Name))
 	}
 	return updatedInfraRef, nil
+}
+
+func getTemplateRefFromInfraMachine(infraMachine *unstructured.Unstructured, kcp *controlplanev1.KubeadmControlPlane) (*corev1.ObjectReference, error) {
+	annotations := infraMachine.GetAnnotations()
+	infraMachineTemplateName, ok := annotations[clusterv1.TemplateClonedFromNameAnnotation]
+	if !ok {
+		return nil, errors.Errorf("failed to identify the template used to create InfrastructureMachine %s: missing %q annotation", klog.KObj(infraMachine), clusterv1.TemplateClonedFromNameAnnotation)
+	}
+	return &corev1.ObjectReference{
+		Kind:       kcp.Spec.MachineTemplate.InfrastructureRef.Kind,
+		Namespace:  kcp.Spec.MachineTemplate.InfrastructureRef.Namespace,
+		Name:       infraMachineTemplateName,
+		APIVersion: kcp.Spec.MachineTemplate.InfrastructureRef.APIVersion,
+	}, nil
+
 }
 
 func (r *KubeadmControlPlaneReconciler) createMachine(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, cluster *clusterv1.Cluster, infraRef, bootstrapRef *corev1.ObjectReference, failureDomain *string) error {
