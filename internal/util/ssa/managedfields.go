@@ -20,6 +20,8 @@ package ssa
 import (
 	"context"
 	"encoding/json"
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -439,8 +439,8 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, controlPlane *internal.ControlPlane) error {
 	// FIXME(ykakarap) Add a comment block. Explain everything that is happening here.
 	// Use comments in other PRs as reference.
-	for i := range controlPlane.Machines {
-		machine := controlPlane.Machines[i]
+	for machineName := range controlPlane.Machines {
+		machine := controlPlane.Machines[machineName]
 		if !machine.DeletionTimestamp.IsZero() {
 			continue
 		}
@@ -457,9 +457,9 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 		if err != nil {
 			return errors.Wrapf(err, "failed to update Machine: %s", klog.KObj(machine))
 		}
-		controlPlane.Machines[i] = updatedMachine
+		controlPlane.Machines[machineName] = updatedMachine
 
-		infraMachine := controlPlane.InfraResources[machine.Name]
+		infraMachine := controlPlane.InfraResources[machineName]
 		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, infraMachine, kcpManagerName, r.Client); err != nil {
 			return errors.Wrapf(err, "failed to clean up managedFields of Infrastructure Machine %s", klog.KObj(infraMachine))
 		}
@@ -467,7 +467,7 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 			return errors.Wrapf(err, "failed to update Infrastructure Machine %s", klog.KObj(infraMachine))
 		}
 
-		kubeadmConfig := controlPlane.KubeadmConfigs[machine.Name]
+		kubeadmConfig := controlPlane.KubeadmConfigs[machineName]
 		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, kubeadmConfig, kcpManagerName, r.Client); err != nil {
 			return errors.Wrapf(err, "failed to clean up managedFields of KubeadmConfig %s", klog.KObj(kubeadmConfig))
 		}

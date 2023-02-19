@@ -384,8 +384,8 @@ func getTemplateRefFromInfraMachine(infraMachine *unstructured.Unstructured, kcp
 		return nil, errors.Errorf("failed to identify the template used to create InfrastructureMachine %s: missing %q annotation", klog.KObj(infraMachine), clusterv1.TemplateClonedFromNameAnnotation)
 	}
 	return &corev1.ObjectReference{
-		Kind:       kcp.Spec.MachineTemplate.InfrastructureRef.Kind,
-		Namespace:  kcp.Spec.MachineTemplate.InfrastructureRef.Namespace,
+		Kind:       infraMachine.GetKind() + clusterv1.TemplateSuffix,
+		Namespace:  infraMachine.GetNamespace(),
 		Name:       infraMachineTemplateName,
 		APIVersion: kcp.Spec.MachineTemplate.InfrastructureRef.APIVersion,
 	}, nil

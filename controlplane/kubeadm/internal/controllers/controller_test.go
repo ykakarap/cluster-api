@@ -392,19 +392,6 @@ func TestReconcilePaused(t *testing.T) {
 }
 
 func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
-	/*
-		CASE I:
-			- Update an existing machine (created using the old manager).
-			  - The updated machine should have the new labels, annotations and node timeout values.
-			  - The old manager entry should be dropped.
-			- Update an existing inframachine (created using the old manager).
-			  - The updated inframachine should have the new labels and annotations.
-			  - The old manager entry should be dropped.
-			- Update an existing KubeadmConfig (created using the old manager
-			  - The updated KubeadmConfig should have the new labels and annotations.
-			  - The old manager entry should be dropped.
-	*/
-
 	setup := func(t *testing.T, g *WithT) *corev1.Namespace {
 		t.Helper()
 
@@ -585,15 +572,15 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	g.Expect(r.syncMachines(ctx, controlPlane)).To(Succeed())
 
 	// Get the updated Machine
-	updatedMachine := &clusterv1.Machine{}
-	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingMachine), updatedMachine)).To(Succeed())
+	updatedMachine := controlPlane.Machines[existingMachine.Name]
+
 	// Verify the managed fields
 	g.Expect(updatedMachine.ManagedFields).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
 	g.Expect(updatedMachine.ManagedFields).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
 
 	// Get the updated KubeadmConfig
 	updatedKubeadmConfig := &bootstrapv1.KubeadmConfig{}
-	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig)).To(Succeed())
+	g.Expect(env.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig)).To(Succeed())
 	// Verify the managed fields
 	g.Expect(updatedKubeadmConfig.ManagedFields).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
 	g.Expect(updatedKubeadmConfig.ManagedFields).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
@@ -603,7 +590,7 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	updatedInfraMachine.SetGroupVersionKind(existingInfraMachine.GroupVersionKind())
 	updatedInfraMachine.SetName(existingInfraMachine.GetName())
 	updatedInfraMachine.SetNamespace(namespace.Name)
-	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine)).To(Succeed())
+	g.Expect(env.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine)).To(Succeed())
 	// Verify the managed fields
 	g.Expect(updatedInfraMachine.GetManagedFields()).To(ContainElement(ssa.MatchManagedField(kcpManagerName, metav1.ManagedFieldsOperationApply)))
 	g.Expect(updatedInfraMachine.GetManagedFields()).NotTo(ContainElement(ssa.MatchManagedField("manager", metav1.ManagedFieldsOperationUpdate)))
@@ -622,8 +609,7 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	g.Expect(r.syncMachines(ctx, controlPlane)).To(Succeed())
 
 	// Get the updated Machine
-	updatedMachine2 := &clusterv1.Machine{}
-	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingMachine), updatedMachine2)).To(Succeed())
+	updatedMachine2 := controlPlane.Machines[existingMachine.Name]
 
 	// Verify the in-place mutating values are propagated
 	g.Expect(updatedMachine2.Labels).To(HaveKeyWithValue("new-label", "new-value"))
@@ -643,7 +629,7 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 
 	// Get the updated KubeadmConfig
 	updatedKubeadmConfig2 := &bootstrapv1.KubeadmConfig{}
-	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig2)).To(Succeed())
+	g.Expect(env.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(existingKubeadmConfig), updatedKubeadmConfig2)).To(Succeed())
 
 	// Verify the in-place mutating values are propagated
 	g.Expect(updatedKubeadmConfig2.Labels).To(HaveKeyWithValue("new-label", "new-value"))
@@ -659,7 +645,7 @@ func TestKubeadmControlPlaneReconciler_syncMachines(t *testing.T) {
 	updatedInfraMachine2.SetGroupVersionKind(existingInfraMachine.GroupVersionKind())
 	updatedInfraMachine2.SetName(existingInfraMachine.GetName())
 	updatedInfraMachine2.SetNamespace(namespace.Name)
-	g.Expect(env.Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine2)).To(Succeed())
+	g.Expect(env.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(existingInfraMachine), updatedInfraMachine2)).To(Succeed())
 
 	// Verify the in-place mutating values are propagated
 	g.Expect(updatedInfraMachine2.GetLabels()).To(HaveKeyWithValue("new-label", "new-value"))
