@@ -583,6 +583,19 @@ func (r *KubeadmControlPlaneReconciler) reconcileControlPlaneConditions(ctx cont
 		return ctrl.Result{}, errors.Wrap(err, "cannot get remote client to workload cluster")
 	}
 
+	// Build the patch helpers for all the machines.
+	// Note: Create the patchHelpers based on the current state of the Machines
+	// so that no unintended patches are applied.
+	patchHelpers := map[string]*patch.Helper{}
+	for _, machine := range controlPlane.Machines {
+		patchHelper, err := patch.NewHelper(machine, r.Client)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to create patch helper for Machine %s", klog.KObj(machine))
+		}
+		patchHelpers[machine.Name] = patchHelper
+	}
+	controlPlane.SetPatchHelpers(patchHelpers)
+
 	// Update conditions status
 	workloadCluster.UpdateStaticPodConditions(ctx, controlPlane)
 	workloadCluster.UpdateEtcdConditions(ctx, controlPlane)

@@ -258,3 +258,7 @@ func (c *ControlPlane) PatchMachines(ctx context.Context) error {
 	}
 	return kerrors.NewAggregate(errList)
 }
+
+func (c *ControlPlane) SetPatchHelpers(patchHelpers map[string]*patch.Helper) {
+	c.machinesPatchHelpers = patchHelpers
+}
