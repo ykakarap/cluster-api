@@ -19,6 +19,10 @@ package controllers
 import (
 	"context"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 	"testing"
 	"time"
 
@@ -37,17 +41,99 @@ import (
 )
 
 func TestKubeadmControlPlaneReconciler_initializeControlPlane(t *testing.T) {
+	setup := func(t *testing.T, g *WithT) *corev1.Namespace {
+		t.Helper()
+
+		t.Log("Creating the namespace")
+		ns, err := env.CreateNamespace(ctx, "test-applykubeadmconfig")
+		g.Expect(err).To(BeNil())
+
+		return ns
+	}
+
+	teardown := func(t *testing.T, g *WithT, ns *corev1.Namespace) {
+		t.Helper()
+
+		t.Log("Deleting the namespace")
+		g.Expect(env.Delete(ctx, ns)).To(Succeed())
+	}
+
 	g := NewWithT(t)
+	namespace := setup(t, g)
+	defer teardown(t, g, namespace)
 
-	cluster, kcp, genericMachineTemplate := createClusterWithControlPlane(metav1.NamespaceDefault)
+	duration5s := &metav1.Duration{Duration: 5 * time.Second}
 
-	fakeClient := newFakeClient(cluster.DeepCopy(), kcp.DeepCopy(), genericMachineTemplate.DeepCopy())
+	cluster := &clusterv1.Cluster{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Cluster",
+			APIVersion: clusterv1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster",
+			Namespace: namespace.Name,
+		},
+	}
+
+	genericInfrastructureMachineTemplate := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       "GenericInfrastructureMachineTemplate",
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+			"metadata": map[string]interface{}{
+				"name":      "infra-foo",
+				"namespace": cluster.Namespace,
+			},
+			"spec": map[string]interface{}{
+				"template": map[string]interface{}{
+					"spec": map[string]interface{}{
+						"hello": "world",
+					},
+				},
+			},
+		},
+	}
+	infraMachineTemplateRef := &corev1.ObjectReference{
+		Kind:       "GenericInfrastructureMachineTemplate",
+		Namespace:  namespace.Name,
+		Name:       "infra-foo",
+		APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+	}
+	g.Expect(env.Create(ctx, genericInfrastructureMachineTemplate, client.FieldOwner("manager"))).To(Succeed())
+
+	bootstrapSpec := &bootstrapv1.KubeadmConfigSpec{
+		JoinConfiguration: &bootstrapv1.JoinConfiguration{},
+	}
+	kcp := &controlplanev1.KubeadmControlPlane{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "KubeadmControlPlane",
+			APIVersion: controlplanev1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID("abc-123-control-plane"),
+			Name:      "existing-kcp",
+			Namespace: namespace.Name,
+		},
+		Spec: controlplanev1.KubeadmControlPlaneSpec{
+			Version:           "v1.25.3",
+			KubeadmConfigSpec: *bootstrapSpec,
+			MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
+				ObjectMeta: clusterv1.ObjectMeta{
+					Labels:      map[string]string{"old-label": "old-value"},
+					Annotations: map[string]string{"old-annotation": "old-value"},
+				},
+				InfrastructureRef:       *infraMachineTemplateRef,
+				NodeDrainTimeout:        duration5s,
+				NodeVolumeDetachTimeout: duration5s,
+				NodeDeletionTimeout:     duration5s,
+			},
+		},
+	}
 
 	r := &KubeadmControlPlaneReconciler{
-		Client:   fakeClient,
+		Client:   env,
 		recorder: record.NewFakeRecorder(32),
 		managementClusterUncached: &fakeManagementCluster{
-			Management: &internal.Management{Client: fakeClient},
+			Management: &internal.Management{Client: env},
 			Workload:   fakeWorkloadCluster{},
 		},
 	}
@@ -61,10 +147,10 @@ func TestKubeadmControlPlaneReconciler_initializeControlPlane(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	machineList := &clusterv1.MachineList{}
-	g.Expect(fakeClient.List(ctx, machineList, client.InNamespace(cluster.Namespace))).To(Succeed())
+	g.Expect(env.GetAPIReader().List(ctx, machineList, client.InNamespace(cluster.Namespace))).To(Succeed())
 	g.Expect(machineList.Items).To(HaveLen(1))
 
-	res, err := collections.GetFilteredMachinesForCluster(ctx, fakeClient, cluster, collections.OwnedMachines(kcp))
+	res, err := collections.GetFilteredMachinesForCluster(ctx, env, cluster, collections.OwnedMachines(kcp))
 	g.Expect(res).To(HaveLen(1))
 	g.Expect(err).NotTo(HaveOccurred())
 
@@ -72,9 +158,9 @@ func TestKubeadmControlPlaneReconciler_initializeControlPlane(t *testing.T) {
 	g.Expect(machineList.Items[0].Name).To(HavePrefix(kcp.Name))
 
 	g.Expect(machineList.Items[0].Spec.InfrastructureRef.Namespace).To(Equal(cluster.Namespace))
-	g.Expect(machineList.Items[0].Spec.InfrastructureRef.Name).To(HavePrefix(genericMachineTemplate.GetName()))
-	g.Expect(machineList.Items[0].Spec.InfrastructureRef.APIVersion).To(Equal(genericMachineTemplate.GetAPIVersion()))
-	g.Expect(machineList.Items[0].Spec.InfrastructureRef.Kind).To(Equal("GenericMachine"))
+	g.Expect(machineList.Items[0].Spec.InfrastructureRef.Name).To(HavePrefix(genericInfrastructureMachineTemplate.GetName()))
+	g.Expect(machineList.Items[0].Spec.InfrastructureRef.APIVersion).To(Equal(genericInfrastructureMachineTemplate.GetAPIVersion()))
+	g.Expect(machineList.Items[0].Spec.InfrastructureRef.Kind).To(Equal("GenericInfrastructureMachine"))
 
 	g.Expect(machineList.Items[0].Spec.Bootstrap.ConfigRef.Namespace).To(Equal(cluster.Namespace))
 	g.Expect(machineList.Items[0].Spec.Bootstrap.ConfigRef.Name).To(HavePrefix(kcp.Name))
@@ -84,11 +170,94 @@ func TestKubeadmControlPlaneReconciler_initializeControlPlane(t *testing.T) {
 
 func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 	t.Run("creates a control plane Machine if preflight checks pass", func(t *testing.T) {
-		g := NewWithT(t)
+		setup := func(t *testing.T, g *WithT) *corev1.Namespace {
+			t.Helper()
 
-		cluster, kcp, genericMachineTemplate := createClusterWithControlPlane(metav1.NamespaceDefault)
+			t.Log("Creating the namespace")
+			ns, err := env.CreateNamespace(ctx, "test-applykubeadmconfig")
+			g.Expect(err).To(BeNil())
+
+			return ns
+		}
+
+		teardown := func(t *testing.T, g *WithT, ns *corev1.Namespace) {
+			t.Helper()
+
+			t.Log("Deleting the namespace")
+			g.Expect(env.Delete(ctx, ns)).To(Succeed())
+		}
+
+		g := NewWithT(t)
+		namespace := setup(t, g)
+		defer teardown(t, g, namespace)
+
+		duration5s := &metav1.Duration{Duration: 5 * time.Second}
+
+		cluster := &clusterv1.Cluster{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Cluster",
+				APIVersion: clusterv1.GroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: namespace.Name,
+			},
+		}
+
+		genericInfrastructureMachineTemplate := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"kind":       "GenericInfrastructureMachineTemplate",
+				"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+				"metadata": map[string]interface{}{
+					"name":      "infra-foo",
+					"namespace": cluster.Namespace,
+				},
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"spec": map[string]interface{}{
+							"hello": "world",
+						},
+					},
+				},
+			},
+		}
+		infraMachineTemplateRef := &corev1.ObjectReference{
+			Kind:       "GenericInfrastructureMachineTemplate",
+			Namespace:  namespace.Name,
+			Name:       "infra-foo",
+			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+		}
+		g.Expect(env.Create(ctx, genericInfrastructureMachineTemplate, client.FieldOwner("manager"))).To(Succeed())
+
+		bootstrapSpec := &bootstrapv1.KubeadmConfigSpec{
+			JoinConfiguration: &bootstrapv1.JoinConfiguration{},
+		}
+		kcp := &controlplanev1.KubeadmControlPlane{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "KubeadmControlPlane",
+				APIVersion: controlplanev1.GroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       types.UID("abc-123-control-plane"),
+				Name:      "existing-kcp",
+				Namespace: namespace.Name,
+			},
+			Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Version:           "v1.25.3",
+				KubeadmConfigSpec: *bootstrapSpec,
+				MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
+					ObjectMeta: clusterv1.ObjectMeta{
+						Labels:      map[string]string{"old-label": "old-value"},
+						Annotations: map[string]string{"old-annotation": "old-value"},
+					},
+					InfrastructureRef:       *infraMachineTemplateRef,
+					NodeDrainTimeout:        duration5s,
+					NodeVolumeDetachTimeout: duration5s,
+					NodeDeletionTimeout:     duration5s,
+				},
+			},
+		}
 		setKCPHealthy(kcp)
-		initObjs := []client.Object{cluster.DeepCopy(), kcp.DeepCopy(), genericMachineTemplate.DeepCopy()}
 
 		fmc := &fakeManagementCluster{
 			Machines: collections.New(),
@@ -97,15 +266,15 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 
 		for i := 0; i < 2; i++ {
 			m, _ := createMachineNodePair(fmt.Sprintf("test-%d", i), cluster, kcp, true)
+			m.Namespace = cluster.Namespace
+			m.Spec.Bootstrap.DataSecretName = pointer.String("machine-bootstrap-secret")
 			setMachineHealthy(m)
 			fmc.Machines.Insert(m)
-			initObjs = append(initObjs, m.DeepCopy())
+			g.Expect(env.Create(ctx, m.DeepCopy())).To(Succeed())
 		}
 
-		fakeClient := newFakeClient(initObjs...)
-
 		r := &KubeadmControlPlaneReconciler{
-			Client:                    fakeClient,
+			Client:                    env,
 			managementCluster:         fmc,
 			managementClusterUncached: fmc,
 			recorder:                  record.NewFakeRecorder(32),
@@ -121,46 +290,135 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 
 		controlPlaneMachines := clusterv1.MachineList{}
-		g.Expect(fakeClient.List(ctx, &controlPlaneMachines)).To(Succeed())
+		g.Expect(env.GetAPIReader().List(ctx, &controlPlaneMachines, client.InNamespace(cluster.Namespace))).To(Succeed())
 		g.Expect(controlPlaneMachines.Items).To(HaveLen(3))
 	})
 	t.Run("does not create a control plane Machine if preflight checks fail", func(t *testing.T) {
-		cluster, kcp, genericMachineTemplate := createClusterWithControlPlane(metav1.NamespaceDefault)
-		initObjs := []client.Object{fakeGenericMachineTemplateCRD, cluster.DeepCopy(), kcp.DeepCopy(), genericMachineTemplate.DeepCopy()}
+		setup := func(t *testing.T, g *WithT) *corev1.Namespace {
+			t.Helper()
+
+			t.Log("Creating the namespace")
+			ns, err := env.CreateNamespace(ctx, "test-applykubeadmconfig")
+			g.Expect(err).To(BeNil())
+
+			return ns
+		}
+
+		teardown := func(t *testing.T, g *WithT, ns *corev1.Namespace) {
+			t.Helper()
+
+			t.Log("Deleting the namespace")
+			g.Expect(env.Delete(ctx, ns)).To(Succeed())
+		}
+
+		g := NewWithT(t)
+		namespace := setup(t, g)
+		defer teardown(t, g, namespace)
+
+		duration5s := &metav1.Duration{Duration: 5 * time.Second}
+
+		cluster := &clusterv1.Cluster{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Cluster",
+				APIVersion: clusterv1.GroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: namespace.Name,
+			},
+		}
 		cluster.Spec.ControlPlaneEndpoint.Host = "nodomain.example.com"
 		cluster.Spec.ControlPlaneEndpoint.Port = 6443
 		cluster.Status.InfrastructureReady = true
 
+		genericInfrastructureMachineTemplate := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"kind":       "GenericInfrastructureMachineTemplate",
+				"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+				"metadata": map[string]interface{}{
+					"name":      "infra-foo",
+					"namespace": cluster.Namespace,
+				},
+				"spec": map[string]interface{}{
+					"template": map[string]interface{}{
+						"spec": map[string]interface{}{
+							"hello": "world",
+						},
+					},
+				},
+			},
+		}
+		infraMachineTemplateRef := &corev1.ObjectReference{
+			Kind:       "GenericInfrastructureMachineTemplate",
+			Namespace:  namespace.Name,
+			Name:       "infra-foo",
+			APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+		}
+		g.Expect(env.Create(ctx, genericInfrastructureMachineTemplate, client.FieldOwner("manager"))).To(Succeed())
+
+		bootstrapSpec := &bootstrapv1.KubeadmConfigSpec{
+			JoinConfiguration: &bootstrapv1.JoinConfiguration{},
+		}
+		kcp := &controlplanev1.KubeadmControlPlane{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "KubeadmControlPlane",
+				APIVersion: controlplanev1.GroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       types.UID("abc-123-control-plane"),
+				Name:      "existing-kcp",
+				Namespace: namespace.Name,
+			},
+			Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Version:           "v1.25.3",
+				KubeadmConfigSpec: *bootstrapSpec,
+				MachineTemplate: controlplanev1.KubeadmControlPlaneMachineTemplate{
+					ObjectMeta: clusterv1.ObjectMeta{
+						Labels:      map[string]string{"old-label": "old-value"},
+						Annotations: map[string]string{"old-annotation": "old-value"},
+					},
+					InfrastructureRef:       *infraMachineTemplateRef,
+					NodeDrainTimeout:        duration5s,
+					NodeVolumeDetachTimeout: duration5s,
+					NodeDeletionTimeout:     duration5s,
+				},
+			},
+		}
+
 		beforeMachines := collections.New()
 		for i := 0; i < 2; i++ {
 			m, _ := createMachineNodePair(fmt.Sprintf("test-%d", i), cluster.DeepCopy(), kcp.DeepCopy(), true)
+			m.Namespace = cluster.Namespace
+			m.Spec.Bootstrap.DataSecretName = pointer.String("machine-bootstrap-secret")
 			beforeMachines.Insert(m)
-			initObjs = append(initObjs, m.DeepCopy())
+			g.Expect(env.Create(ctx, m.DeepCopy())).To(Succeed())
 		}
 
-		g := NewWithT(t)
-
-		fakeClient := newFakeClient(initObjs...)
 		fmc := &fakeManagementCluster{
 			Machines: beforeMachines.DeepCopy(),
 			Workload: fakeWorkloadCluster{},
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:                    fakeClient,
-			APIReader:                 fakeClient,
+			Client:                    env,
+			APIReader:                 env.GetAPIReader(),
 			managementCluster:         fmc,
 			managementClusterUncached: fmc,
 			recorder:                  record.NewFakeRecorder(32),
 		}
+		controlPlane := &internal.ControlPlane{
+			KCP:      kcp,
+			Cluster:  cluster,
+			Machines: fmc.Machines,
+		}
 
-		result, err := r.reconcile(context.Background(), cluster, kcp)
+		result, err := r.scaleUpControlPlane(ctx, cluster, kcp, controlPlane)
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(result).To(Equal(ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}))
 
-		// scaleUpControlPlane is never called due to health check failure and new machine is not created to scale up.
+		// control plane would not scale up because preflight checks would fail as the conditions are not healthy.
 		controlPlaneMachines := &clusterv1.MachineList{}
-		g.Expect(fakeClient.List(context.Background(), controlPlaneMachines)).To(Succeed())
+		g.Expect(env.GetAPIReader().List(context.Background(), controlPlaneMachines, client.InNamespace(cluster.Namespace))).To(Succeed())
 		g.Expect(controlPlaneMachines.Items).To(HaveLen(len(beforeMachines)))
 
 		endMachines := collections.FromMachineList(controlPlaneMachines)
@@ -168,7 +426,7 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 			bm, ok := beforeMachines[m.Name]
 			bm.SetResourceVersion("999")
 			g.Expect(ok).To(BeTrue())
-			g.Expect(m).To(Equal(bm))
+			g.Expect(m.Spec).To(BeComparableTo(bm.Spec))
 		}
 	})
 }
