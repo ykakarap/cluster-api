@@ -439,6 +439,7 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, controlPlane *internal.ControlPlane) error {
 	// FIXME(ykakarap) Add a comment block. Explain everything that is happening here.
 	// Use comments in other PRs as reference.
+	patchHelpers := map[string]*patch.Helper{}
 	for machineName := range controlPlane.Machines {
 		machine := controlPlane.Machines[machineName]
 		if !machine.DeletionTimestamp.IsZero() {
@@ -458,6 +459,12 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 			return errors.Wrapf(err, "failed to update Machine: %s", klog.KObj(machine))
 		}
 		controlPlane.Machines[machineName] = updatedMachine
+		// FIXME(ykakarap) add a comment here.
+		patchHelper, err := patch.NewHelper(updatedMachine, r.Client)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create patch helper for Machine %s", klog.KObj(machine))
+		}
+		patchHelpers[machineName] = patchHelper
 
 		infraMachine := controlPlane.InfraResources[machineName]
 		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, infraMachine, kcpManagerName, r.Client); err != nil {
@@ -476,6 +483,7 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 			return errors.Wrapf(err, "failed to update KubeadmConfig %s", klog.KObj(kubeadmConfig))
 		}
 	}
+	controlPlane.SetPatchHelpers(patchHelpers)
 	return nil
 }
 
@@ -582,19 +590,6 @@ func (r *KubeadmControlPlaneReconciler) reconcileControlPlaneConditions(ctx cont
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "cannot get remote client to workload cluster")
 	}
-
-	// Build the patch helpers for all the machines.
-	// Note: Create the patchHelpers based on the current state of the Machines
-	// so that no unintended patches are applied.
-	patchHelpers := map[string]*patch.Helper{}
-	for _, machine := range controlPlane.Machines {
-		patchHelper, err := patch.NewHelper(machine, r.Client)
-		if err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "failed to create patch helper for Machine %s", klog.KObj(machine))
-		}
-		patchHelpers[machine.Name] = patchHelper
-	}
-	controlPlane.SetPatchHelpers(patchHelpers)
 
 	// Update conditions status
 	workloadCluster.UpdateStaticPodConditions(ctx, controlPlane)
