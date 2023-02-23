@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/storage/names"
@@ -364,11 +365,11 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 	return ctrl.Result{}, nil
 }
 
-// syncMachines updates Machines to propagate in-place mutable fields from the MachineSet.
-// Note: It also cleans up managed fields of all Machines so that Machines that were created/patched before (< v1.4.0)
-// the controller adopted Server-Side-Apply (SSA) can also work with SSA. Otherwise fields would be co-owned by
-// our "old" "manager" and "capi-machineset" and then we would not be able to e.g. drop labels and annotations.
-// TODO: update the labels and annotations to the corresponding infra machines and the boostrap configs of the filtered machines.
+// syncMachines updates Machines, Infrastructure Machine and BootstrapConfig to propagate in-place mutable fields
+// from the MachineSet. Note: It also cleans up managed fields of all Machines so that Machines that were
+// created/patched before (< v1.4.0) the controller adopted Server-Side-Apply (SSA) can also work with SSA.
+// Otherwise fields would be co-owned by our "old" "manager" and "capi-machineset" and then we would not be
+// able to e.g. drop labels and annotations.
 func (r *Reconciler) syncMachines(ctx context.Context, machineSet *clusterv1.MachineSet, machines []*clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
 	for i := range machines {
@@ -397,6 +398,42 @@ func (r *Reconciler) syncMachines(ctx context.Context, machineSet *clusterv1.Mac
 			return errors.Wrapf(err, "failed to update Machine %q", klog.KObj(updatedMachine))
 		}
 		machines[i] = updatedMachine
+
+		infraMachine, err := external.Get(ctx, r.Client, &updatedMachine.Spec.InfrastructureRef, updatedMachine.Namespace)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get Infrastructure Machine %s",
+				klog.KRef(updatedMachine.Spec.InfrastructureRef.Namespace, updatedMachine.Spec.InfrastructureRef.Name))
+		}
+		// Cleanup managed fields of all Infrastructure Machines.
+		// We do this so that Infrastructure Machines that are created using the Create method can also work with SSA.
+		// Otherwise, labels and annotations would be co-owned by our "old" "manager" and "capi-machineset" and then we
+		// would not be able to e.g. drop labels and annotations.
+		if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, infraMachine, machineSetManagerName, r.Client); err != nil {
+			return errors.Wrapf(err, "failed to update machine: failed to adjust the managedFields of the Infrastructure Machine %s", klog.KObj(infraMachine))
+		}
+		// Update in-place mutating fields on Infrastructure Machine.
+		if err := r.updateExternalObject(ctx, infraMachine, machineSet); err != nil {
+			return errors.Wrapf(err, "failed to update Infrastructure Machine %s", klog.KObj(infraMachine))
+		}
+
+		if updatedMachine.Spec.Bootstrap.ConfigRef != nil {
+			bootstrapConfig, err := external.Get(ctx, r.Client, updatedMachine.Spec.Bootstrap.ConfigRef, updatedMachine.Namespace)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get BootstrapConfig %s",
+					klog.KRef(updatedMachine.Spec.Bootstrap.ConfigRef.Namespace, updatedMachine.Spec.Bootstrap.ConfigRef.Name))
+			}
+			// Cleanup managed fields of all BootstrapConfig.
+			// We do this so that BootstrapConfigs that are created using the Create method can also work with SSA.
+			// Otherwise, labels and annotations would be co-owned by our "old" "manager" and "capi-machineset" and
+			// then we would not be able to e.g. drop labels and annotations.
+			if err := ssa.CleanUpManagedFieldsForSSAAdoption(ctx, bootstrapConfig, machineSetManagerName, r.Client); err != nil {
+				return errors.Wrapf(err, "failed to update machine: failed to adjust the managedFields of the Infrastructure Machine %s", klog.KObj(bootstrapConfig))
+			}
+			// Update in-place mutating fields on BootstrapConfig.
+			if err := r.updateExternalObject(ctx, bootstrapConfig, machineSet); err != nil {
+				return errors.Wrapf(err, "failed to update Infrastructure Machine %s", klog.KObj(bootstrapConfig))
+			}
+		}
 	}
 	return nil
 }
@@ -604,22 +641,7 @@ func (r *Reconciler) computeDesiredMachine(machineSet *clusterv1.MachineSet, exi
 	// When we update an existing Machine will we update the fields on the existing Machine (in-place mutate).
 
 	// Set Labels
-	// Note: We can't just set `machineSet.Spec.Template.Labels` directly and thus "share" the labels
-	// map between Machine and machineSet.Spec.Template.Labels. This would mean that adding the
-	// MachineSetNameLabel and MachineDeploymentNameLabel later on the Machine would also add the labels
-	// to machineSet.Spec.Template.Labels and thus modify the labels of the MachineSet.
-	for k, v := range machineSet.Spec.Template.Labels {
-		desiredMachine.Labels[k] = v
-	}
-	// Always set the MachineSetNameLabel.
-	// Note: If a client tries to create a MachineSet without a selector, the MachineSet webhook
-	// will add this label automatically. But we want this label to always be present even if the MachineSet
-	// has a selector which doesn't include it. Therefore, we have to set it here explicitly.
-	desiredMachine.Labels[clusterv1.MachineSetNameLabel] = capilabels.MustFormatValue(machineSet.Name)
-	// Propagate the MachineDeploymentNameLabel from MachineSet to Machine if it exists.
-	if mdName, ok := machineSet.Labels[clusterv1.MachineDeploymentNameLabel]; ok {
-		desiredMachine.Labels[clusterv1.MachineDeploymentNameLabel] = mdName
-	}
+	desiredMachine.Labels = machineLabelsFromMachineSet(machineSet)
 
 	// Set Annotations
 	for k, v := range machineSet.Spec.Template.Annotations {
@@ -632,6 +654,55 @@ func (r *Reconciler) computeDesiredMachine(machineSet *clusterv1.MachineSet, exi
 	desiredMachine.Spec.NodeVolumeDetachTimeout = machineSet.Spec.Template.Spec.NodeVolumeDetachTimeout
 
 	return desiredMachine
+}
+
+// updateExternalObject updates the external object passed in with the
+// updated labels and annotations from the MachineSet.
+func (r *Reconciler) updateExternalObject(ctx context.Context, obj client.Object, machineSet *clusterv1.MachineSet) error {
+	updatedInfraMachine := &unstructured.Unstructured{}
+	updatedInfraMachine.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+	updatedInfraMachine.SetNamespace(obj.GetNamespace())
+	updatedInfraMachine.SetName(obj.GetName())
+	// Set the UID to ensure that Server-Side-Apply only performs an update
+	// and does not perform an accidental create.
+	updatedInfraMachine.SetUID(obj.GetUID())
+
+	updatedInfraMachine.SetLabels(machineLabelsFromMachineSet(machineSet))
+	annotations := map[string]string{}
+	for k, v := range machineSet.Spec.Template.Annotations {
+		annotations[k] = v
+	}
+	updatedInfraMachine.SetAnnotations(annotations)
+
+	patchOptions := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner(machineSetManagerName),
+	}
+	if err := r.Client.Patch(ctx, updatedInfraMachine, client.Apply, patchOptions...); err != nil {
+		return errors.Wrapf(err, "failed to update %s", klog.KObj(obj))
+	}
+	return nil
+}
+
+func machineLabelsFromMachineSet(machineSet *clusterv1.MachineSet) map[string]string {
+	machineLabels := map[string]string{}
+	// Note: We can't just set `machineSet.Spec.Template.Labels` directly and thus "share" the labels
+	// map between Machine and machineSet.Spec.Template.Labels. This would mean that adding the
+	// MachineSetNameLabel and MachineDeploymentNameLabel later on the Machine would also add the labels
+	// to machineSet.Spec.Template.Labels and thus modify the labels of the MachineSet.
+	for k, v := range machineSet.Spec.Template.Labels {
+		machineLabels[k] = v
+	}
+	// Always set the MachineSetNameLabel.
+	// Note: If a client tries to create a MachineSet without a selector, the MachineSet webhook
+	// will add this label automatically. But we want this label to always be present even if the MachineSet
+	// has a selector which doesn't include it. Therefore, we have to set it here explicitly.
+	machineLabels[clusterv1.MachineSetNameLabel] = capilabels.MustFormatValue(machineSet.Name)
+	// Propagate the MachineDeploymentNameLabel from MachineSet to Machine if it exists.
+	if mdName, ok := machineSet.Labels[clusterv1.MachineDeploymentNameLabel]; ok {
+		machineLabels[clusterv1.MachineDeploymentNameLabel] = mdName
+	}
+	return machineLabels
 }
 
 // shouldExcludeMachine returns true if the machine should be filtered out, false otherwise.

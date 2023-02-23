@@ -1036,6 +1036,42 @@ func TestMachineSetReconciler_syncMachines(t *testing.T) {
 		},
 	}
 
+	infraMachine := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       "GenericInfrastructureMachine",
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+			"metadata": map[string]interface{}{
+				"name":      "infra-machine-1",
+				"namespace": namespace.Name,
+				"labels": map[string]interface{}{
+					"machine-set-matching-label": "false", // this label should be modified
+				},
+				"annotations": map[string]interface{}{
+					"annotation-1": "false", // this annotation should be modified
+				},
+			},
+		},
+	}
+	g.Expect(env.Create(ctx, infraMachine, client.FieldOwner("manager"))).To(Succeed())
+
+	bootstrapConfig := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       "GenericBootstrapConfig",
+			"apiVersion": "bootstrap.cluster.x-k8s.io/v1beta1",
+			"metadata": map[string]interface{}{
+				"name":      "bootstrap-config-1",
+				"namespace": namespace.Name,
+				"labels": map[string]interface{}{
+					"machine-set-matching-label": "false", // this label should be modified
+				},
+				"annotations": map[string]interface{}{
+					"annotation-1": "false", // this annotation should be modified
+				},
+			},
+		},
+	}
+	g.Expect(env.Create(ctx, bootstrapConfig, client.FieldOwner("manager"))).To(Succeed())
+
 	inPlaceMutatingMachine := &clusterv1.Machine{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: clusterv1.GroupVersion.String(),
@@ -1054,10 +1090,20 @@ func TestMachineSetReconciler_syncMachines(t *testing.T) {
 		Spec: clusterv1.MachineSpec{
 			ClusterName: testClusterName,
 			InfrastructureRef: corev1.ObjectReference{
-				Namespace: namespace.Name,
+				Namespace:  infraMachine.GetNamespace(),
+				Name:       infraMachine.GetName(),
+				UID:        infraMachine.GetUID(),
+				APIVersion: infraMachine.GetAPIVersion(),
+				Kind:       infraMachine.GetKind(),
 			},
 			Bootstrap: clusterv1.Bootstrap{
-				DataSecretName: pointer.String("machine-bootstrap-secret"),
+				ConfigRef: &corev1.ObjectReference{
+					Namespace:  bootstrapConfig.GetNamespace(),
+					Name:       bootstrapConfig.GetName(),
+					UID:        bootstrapConfig.GetUID(),
+					APIVersion: bootstrapConfig.GetAPIVersion(),
+					Kind:       bootstrapConfig.GetKind(),
+				},
 			},
 		},
 	}
@@ -1138,6 +1184,50 @@ func TestMachineSetReconciler_syncMachines(t *testing.T) {
 		Not(BeNil()),
 		HaveValue(Equal(*ms.Spec.Template.Spec.NodeDrainTimeout)),
 	))
+
+	// The in-place mutating infrastructure machine should have:
+	// - clean-up managed fields
+	// - updated in-place propagating values
+	updatedInfraMachine := infraMachine.DeepCopy()
+	g.Expect(env.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(updatedInfraMachine), updatedInfraMachine))
+
+	// Verify ManagedFields
+	g.Expect(updatedInfraMachine.GetManagedFields()).Should(
+		ContainElement(ssa.MatchManagedFieldsEntry(machineSetManagerName, metav1.ManagedFieldsOperationApply)),
+		"in-place mutable machine should contain an entry for SSA manager",
+	)
+	g.Expect(updatedInfraMachine.GetManagedFields()).ShouldNot(
+		ContainElement(ssa.MatchManagedFieldsEntry("manager", metav1.ManagedFieldsOperationUpdate)),
+		"in-place mutable machine should not contain an entry for old manager",
+	)
+	// Verify in-place mutable fields have been updated.
+	// Verify Labels
+	g.Expect(updatedInfraMachine.GetLabels()).Should(HaveKeyWithValue("machine-set-matching-label", "true"))
+	// Verify Annotations
+	g.Expect(updatedInfraMachine.GetAnnotations()).Should(HaveKeyWithValue("annotation-1", "true"))
+	g.Expect(updatedInfraMachine.GetAnnotations()).Should(HaveKeyWithValue("precedence", "MachineSet"))
+
+	// The in-place mutating bootstrap config should have:
+	// - clean-up managed fields
+	// - updated in-place propagating values
+	updatedBootstrapConfig := bootstrapConfig.DeepCopy()
+	g.Expect(env.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(updatedBootstrapConfig), updatedBootstrapConfig))
+
+	// Verify ManagedFields
+	g.Expect(updatedBootstrapConfig.GetManagedFields()).Should(
+		ContainElement(ssa.MatchManagedFieldsEntry(machineSetManagerName, metav1.ManagedFieldsOperationApply)),
+		"in-place mutable machine should contain an entry for SSA manager",
+	)
+	g.Expect(updatedBootstrapConfig.GetManagedFields()).ShouldNot(
+		ContainElement(ssa.MatchManagedFieldsEntry("manager", metav1.ManagedFieldsOperationUpdate)),
+		"in-place mutable machine should not contain an entry for old manager",
+	)
+	// Verify in-place mutable fields have been updated.
+	// Verify Labels
+	g.Expect(updatedBootstrapConfig.GetLabels()).Should(HaveKeyWithValue("machine-set-matching-label", "true"))
+	// Verify Annotations
+	g.Expect(updatedBootstrapConfig.GetAnnotations()).Should(HaveKeyWithValue("annotation-1", "true"))
+	g.Expect(updatedBootstrapConfig.GetAnnotations()).Should(HaveKeyWithValue("precedence", "MachineSet"))
 
 	// Wait to ensure Machine is not updated.
 	// Verify that the machine stays the same consistently.
