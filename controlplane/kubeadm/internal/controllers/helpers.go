@@ -454,6 +454,13 @@ func (r *KubeadmControlPlaneReconciler) computeDesiredMachine(kcp *controlplanev
 			return nil, errors.Wrap(err, "failed to marshal cluster configuration")
 		}
 		annotations[controlplanev1.KubeadmClusterConfigurationAnnotation] = string(clusterConfig)
+
+		// In case this machine is being created as a consequence of a remediation, then add an annotation
+		// tracking remediating data.
+		// NOTE: This is required in order to track remediation retries.
+		if remediationData, ok := kcp.Annotations[controlplanev1.RemediationInProgressAnnotation]; ok {
+			annotations[controlplanev1.RemediationForAnnotation] = remediationData
+		}
 	} else {
 		// Updating an existing machine
 		machineName = existingMachine.Name
@@ -466,6 +473,12 @@ func (r *KubeadmControlPlaneReconciler) computeDesiredMachine(kcp *controlplanev
 		// information.
 		if clusterConfig, ok := existingMachine.Annotations[controlplanev1.KubeadmClusterConfigurationAnnotation]; ok {
 			annotations[controlplanev1.KubeadmClusterConfigurationAnnotation] = clusterConfig
+		}
+
+		// If the machine already has remediation date then preserve it.
+		// NOTE: This is required in order to track remediation retries.
+		if remediationData, ok := existingMachine.Annotations[controlplanev1.RemediationInProgressAnnotation]; ok {
+			annotations[controlplanev1.RemediationForAnnotation] = remediationData
 		}
 	}
 
