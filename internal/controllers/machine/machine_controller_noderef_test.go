@@ -711,7 +711,7 @@ func TestPatchNode(t *testing.T) {
 				_ = env.Cleanup(ctx, oldNode)
 			})
 
-			err := r.patchNode(ctx, oldNode, tc.newLabels, tc.newAnnotations)
+			err := r.patchNode(ctx, env, oldNode, tc.newLabels, tc.newAnnotations)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			g.Eventually(func(g Gomega) {

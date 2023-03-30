@@ -119,7 +119,7 @@ func (r *Reconciler) reconcileNode(ctx context.Context, cluster *clusterv1.Clust
 	nodeLabels := getManagedLabels(machine.Labels)
 
 	// Reconcile node taints
-	if err := r.patchNode(ctx, node, nodeLabels, nodeAnnotations); err != nil {
+	if err := r.patchNode(ctx, remoteClient, node, nodeLabels, nodeAnnotations); err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to reconcile Node %s", klog.KObj(node))
 	}
 
@@ -242,7 +242,7 @@ func (r *Reconciler) getNode(ctx context.Context, c client.Reader, providerID *n
 
 // PatchNode is required to workaround an issue on Node.Status.Address which is incorrectly annotated as patchStrategy=merge
 // and this causes SSA patch to fail in case there are two address with the same key https://github.com/kubernetes-sigs/cluster-api/issues/8417
-func (r *Reconciler) patchNode(ctx context.Context, node *corev1.Node, newLabels, newAnnotations map[string]string) error {
+func (r *Reconciler) patchNode(ctx context.Context, remoteClient client.Client, node *corev1.Node, newLabels, newAnnotations map[string]string) error {
 	newNode := node.DeepCopy()
 
 	// Adds all the annotation CAPI sets on the node.
@@ -283,5 +283,5 @@ func (r *Reconciler) patchNode(ctx context.Context, node *corev1.Node, newLabels
 		return nil
 	}
 
-	return r.Client.Patch(ctx, newNode, client.StrategicMergeFrom(node))
+	return remoteClient.Patch(ctx, newNode, client.StrategicMergeFrom(node))
 }
