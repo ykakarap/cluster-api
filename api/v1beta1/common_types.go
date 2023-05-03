@@ -117,6 +117,25 @@ const (
 	// MachineSkipRemediationAnnotation is the annotation used to mark the machines that should not be considered for remediation by MachineHealthCheck reconciler.
 	MachineSkipRemediationAnnotation = "cluster.x-k8s.io/skip-remediation"
 
+	// MachineSetSkipPreflightChecksAnnotation is the annotations used to provider a coma separated list of
+	// preflight checks that should be skipped during the MachineSet reconciliation.
+	// Supported items are:
+	// - kubeadm (skips the kubeadm version skew preflight check)
+	// Example: "cluster.x-k8s.io/skip-machineset-preflight-checks": "controlplane,kubeadm".
+	MachineSetSkipPreflightChecksAnnotation = "cluster.x-k8s.io/skip-machineset-preflight-checks"
+
+	// MachineSetPreflightCheckAll can be used to represent all the MachineSet preflight checks.
+	MachineSetPreflightCheckAll = "all"
+
+	// MachineSetPreflightCheckKubeadm is the name of the kubeadm preflight check.
+	MachineSetPreflightCheckKubeadm = "kubeadm"
+
+	// MachineSetPreflightCheckKubernetes is the name of the kubernetes preflight check.
+	MachineSetPreflightCheckKubernetes = "kubernetes"
+
+	// MachineSetPreflightCheckControlPlane is the name of the control plane preflight check.
+	MachineSetPreflightCheckControlPlane = "controlplane"
+
 	// ClusterSecretType defines the type of secret created by core components.
 	// Note: This is used by core CAPI, CAPBK, and KCP to determine whether a secret is created by the controllers
 	// themselves or supplied by the user (e.g. bring your own certificates).

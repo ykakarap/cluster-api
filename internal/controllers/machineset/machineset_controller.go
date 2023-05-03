@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blang/semver"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -70,6 +72,10 @@ var (
 )
 
 const machineSetManagerName = "capi-machineset"
+
+// preflightFailedRequeueAfter is how long to wait before trying to scale
+// up if some preflight check  has failed.
+const preflightFailedRequeueAfter = 15 * time.Second
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
@@ -296,7 +302,12 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 		filteredMachines = append(filteredMachines, machine)
 	}
 
+	result := ctrl.Result{}
 	// Remediate failed Machines by deleting them.
+	preFlightChecksResult, err := r.runPreFlightChecks(ctx, cluster, machineSet)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	var errs []error
 	for _, machine := range filteredMachines {
 		log := log.WithValues("Machine", klog.KObj(machine))
@@ -306,6 +317,12 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 			continue
 		}
 		if conditions.IsFalse(machine, clusterv1.MachineOwnerRemediatedCondition) {
+			// Delete the machines only if the pre-flight checks have passed. Do not delete machines if we cannot
+			// guarantee creating new machines.
+			if !preFlightChecksResult.IsZero() {
+				result = util.LowestNonZeroResult(result, preFlightChecksResult)
+				break
+			}
 			log.Info("Deleting machine because marked as unhealthy by the MachineHealthCheck controller")
 			patch := client.MergeFrom(machine.DeepCopy())
 			if err := r.Client.Delete(ctx, machine); err != nil {
@@ -329,7 +346,8 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 		return ctrl.Result{}, errors.Wrap(err, "failed to update Machines")
 	}
 
-	syncErr := r.syncReplicas(ctx, machineSet, filteredMachines)
+	syncReplicasResult, syncErr := r.syncReplicas(ctx, cluster, machineSet, filteredMachines)
+	result = util.LowestNonZeroResult(result, syncReplicasResult)
 
 	// Always updates status as machines come up or die.
 	if err := r.updateStatus(ctx, cluster, machineSet, filteredMachines); err != nil {
@@ -355,15 +373,17 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 	if machineSet.Spec.MinReadySeconds > 0 &&
 		machineSet.Status.ReadyReplicas == replicas &&
 		machineSet.Status.AvailableReplicas != replicas {
-		return ctrl.Result{RequeueAfter: time.Duration(machineSet.Spec.MinReadySeconds) * time.Second}, nil
+		minReadyResult := ctrl.Result{RequeueAfter: time.Duration(machineSet.Spec.MinReadySeconds) * time.Second}
+		result = util.LowestNonZeroResult(result, minReadyResult)
+		return result, nil
 	}
 
 	// Quickly reconcile until the nodes become Ready.
 	if machineSet.Status.ReadyReplicas != replicas {
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		result = util.LowestNonZeroResult(result, ctrl.Result{RequeueAfter: 15 * time.Second})
 	}
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 // syncMachines updates Machines, InfrastructureMachine and BootstrapConfig to propagate in-place mutable fields
@@ -444,10 +464,10 @@ func (r *Reconciler) syncMachines(ctx context.Context, machineSet *clusterv1.Mac
 }
 
 // syncReplicas scales Machine resources up or down.
-func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet, machines []*clusterv1.Machine) error {
+func (r *Reconciler) syncReplicas(ctx context.Context, cluster *clusterv1.Cluster, ms *clusterv1.MachineSet, machines []*clusterv1.Machine) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	if ms.Spec.Replicas == nil {
-		return errors.Errorf("the Replicas field in Spec for machineset %v is nil, this should not be allowed", ms.Name)
+		return ctrl.Result{}, errors.Errorf("the Replicas field in Spec for machineset %v is nil, this should not be allowed", ms.Name)
 	}
 	diff := len(machines) - int(*(ms.Spec.Replicas))
 	switch {
@@ -457,9 +477,15 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 		if ms.Annotations != nil {
 			if _, ok := ms.Annotations[clusterv1.DisableMachineCreateAnnotation]; ok {
 				log.Info("Automatic creation of new machines disabled for machine set")
-				return nil
+				return ctrl.Result{}, nil
 			}
 		}
+
+		result, err := r.runPreFlightChecks(ctx, cluster, ms)
+		if err != nil || !result.IsZero() {
+			return result, err
+		}
+
 		var (
 			machineList []*clusterv1.Machine
 			errs        []error
@@ -493,7 +519,7 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 				})
 				if err != nil {
 					conditions.MarkFalse(ms, clusterv1.MachinesCreatedCondition, clusterv1.BootstrapTemplateCloningFailedReason, clusterv1.ConditionSeverityError, err.Error())
-					return errors.Wrapf(err, "failed to clone bootstrap configuration from %s %s while creating a machine",
+					return ctrl.Result{}, errors.Wrapf(err, "failed to clone bootstrap configuration from %s %s while creating a machine",
 						ms.Spec.Template.Spec.Bootstrap.ConfigRef.Kind,
 						klog.KRef(ms.Spec.Template.Spec.Bootstrap.ConfigRef.Namespace, ms.Spec.Template.Spec.Bootstrap.ConfigRef.Name))
 				}
@@ -518,7 +544,7 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 			})
 			if err != nil {
 				conditions.MarkFalse(ms, clusterv1.MachinesCreatedCondition, clusterv1.InfrastructureTemplateCloningFailedReason, clusterv1.ConditionSeverityError, err.Error())
-				return errors.Wrapf(err, "failed to clone infrastructure machine from %s %s while creating a machine",
+				return ctrl.Result{}, errors.Wrapf(err, "failed to clone infrastructure machine from %s %s while creating a machine",
 					ms.Spec.Template.Spec.InfrastructureRef.Kind,
 					klog.KRef(ms.Spec.Template.Spec.InfrastructureRef.Namespace, ms.Spec.Template.Spec.InfrastructureRef.Name))
 			}
@@ -551,15 +577,16 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 		}
 
 		if len(errs) > 0 {
-			return kerrors.NewAggregate(errs)
+			return ctrl.Result{}, kerrors.NewAggregate(errs)
 		}
-		return r.waitForMachineCreation(ctx, machineList)
+		err = r.waitForMachineCreation(ctx, machineList)
+		return ctrl.Result{}, err
 	case diff > 0:
 		log.Info(fmt.Sprintf("MachineSet is scaling down to %d replicas by deleting %d machines", *(ms.Spec.Replicas), diff), "replicas", *(ms.Spec.Replicas), "machineCount", len(machines), "deletePolicy", ms.Spec.DeletePolicy)
 
 		deletePriorityFunc, err := getDeletePriorityFunc(ms)
 		if err != nil {
-			return err
+			return ctrl.Result{}, err
 		}
 
 		var errs []error
@@ -581,12 +608,13 @@ func (r *Reconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet,
 		}
 
 		if len(errs) > 0 {
-			return kerrors.NewAggregate(errs)
+			return ctrl.Result{}, kerrors.NewAggregate(errs)
 		}
-		return r.waitForMachineDeletion(ctx, machinesToDelete)
+		err = r.waitForMachineDeletion(ctx, machinesToDelete)
+		return ctrl.Result{}, err
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
 // computeDesiredMachine computes the desired Machine.
@@ -966,6 +994,146 @@ func (r *Reconciler) getMachineNode(ctx context.Context, cluster *clusterv1.Clus
 	return node, nil
 }
 
+func (r *Reconciler) runPreFlightChecks(ctx context.Context, cluster *clusterv1.Cluster, ms *clusterv1.MachineSet) (ctrl.Result, error) {
+	skippable := skippablePreflightChecks(ms)
+	// If all the preflight checks are skipped then return early.
+	if skippable.Has(clusterv1.MachineSetPreflightCheckAll) {
+		return ctrl.Result{}, nil
+	}
+
+	// If the cluster does not have a control plane reference then there is nothing to do. Return early.
+	if cluster.Spec.ControlPlaneRef == nil {
+		return ctrl.Result{}, nil
+	}
+
+	// Get the control plane object.
+	controlPlane, err := external.Get(ctx, r.Client, cluster.Spec.ControlPlaneRef, cluster.Namespace)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform pre-flight checks: failed to get ControlPlane %s", klog.KRef(cluster.Spec.ControlPlaneRef.Namespace, cluster.Spec.ControlPlaneRef.Name))
+	}
+	cpKlogRef := klog.KRef(controlPlane.GetNamespace(), controlPlane.GetName())
+
+	// If the Control Plane version is not set then we are dealing with a control plane that does not support version
+	// or a control plane where the version is not set. In both cases we cannot perform any preflight checks as
+	// we do not have enough information. Return early.
+	cpVersion, err := contract.ControlPlane().Version().Get(controlPlane)
+	if err != nil {
+		if errors.Is(err, contract.ErrNotFound) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform pre-flight checks: failed to get the version of ControlPlane %s", cpKlogRef)
+	}
+
+	// Run the control plane preflight check.
+	if !skippable.Has(clusterv1.MachineSetPreflightCheckControlPlane) {
+		if result, err := r.controlPlaneStablePreflightCheck(ctx, controlPlane); err != nil || !result.IsZero() {
+			return result, errors.Wrap(err, "failed to perform pre-flight checks")
+		}
+	}
+
+	// Run the kubernetes version skew preflight check.
+	if !skippable.Has(clusterv1.MachineSetPreflightCheckKubernetes) {
+		if result, err := r.kubernetesVersionPreflightCheck(ctx, *cpVersion, ms); err != nil || !result.IsZero() {
+			return result, errors.Wrap(err, "failed to perform pre-flight checks")
+		}
+	}
+
+	// Run the kubeadm version skew preflight check.
+	if !skippable.Has(clusterv1.MachineSetPreflightCheckKubeadm) {
+		if result := r.kubeadmVersionPreflightCheck(ctx, *cpVersion, ms); !result.IsZero() {
+			return result, nil
+		}
+	}
+
+	// All pre-flight checks passed.
+	return ctrl.Result{}, nil
+}
+
+func (r *Reconciler) controlPlaneStablePreflightCheck(ctx context.Context, controlPlane *unstructured.Unstructured) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	cpKlogRef := klog.KRef(controlPlane.GetNamespace(), controlPlane.GetName())
+
+	// Check that the control plane is not provisioning.
+	isProvisioning, err := contract.ControlPlane().IsProvisioning(controlPlane)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform control plane pre-flight check: failed to check if ControlPlane %s is provisioning", cpKlogRef)
+	}
+	if isProvisioning {
+		log.Info(fmt.Sprintf("Pre-flight check failed: ControlPlane %s is provisioning", cpKlogRef))
+		return ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}, nil
+	}
+
+	// Check that the control plane is not upgrading.
+	isUpgrading, err := contract.ControlPlane().IsUpgrading(controlPlane)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform control plane pre-flight check: failed to check if the ControlPlane %s is upgrading", cpKlogRef)
+	}
+	if isUpgrading {
+		log.Info(fmt.Sprintf("Pre-flight check failed: ControlPlane %s is upgrading", cpKlogRef))
+		return ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *Reconciler) kubernetesVersionPreflightCheck(ctx context.Context, cpVersion string, ms *clusterv1.MachineSet) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	// If the version is not defined on the MachineSet then we cannot check for the version skew policies.
+	// Return early.
+	if ms.Spec.Template.Spec.Version == nil {
+		return ctrl.Result{}, nil
+	}
+	msVersion := *ms.Spec.Template.Spec.Version
+
+	cpSemver, err := semver.ParseTolerant(cpVersion)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform kubernetes version skew pre-flight check: failed to parse ControlPlane version %s", cpVersion)
+	}
+	msSemver, err := semver.ParseTolerant(msVersion)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform kubernetes version skew pre-flight check: failed to parse MachineSet version %s", msVersion)
+	}
+
+	// Check the Kubernetes version skew policy.
+	// => MS minor version cannot be greater than the Control Plane minor version.
+	// => MS minor version cannot be older than 2 minor version of Control Plane.
+	// Kubernetes skew policy: https://kubernetes.io/releases/version-skew-policy/#kubelet
+	floorVersion := semver.Version{
+		Major: cpSemver.Major,
+		Minor: cpSemver.Minor - 2,
+		Patch: 0,
+	}
+	if msSemver.GT(cpSemver) || msSemver.LT(floorVersion) {
+		log.Info(fmt.Sprintf("Pre-flight check failed: MachineSet version (%s) and ControlPlane version (%s) do not conform to the kubernetes version skew policy", msVersion, cpVersion))
+		return ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *Reconciler) kubeadmVersionPreflightCheck(ctx context.Context, cpVersion string, ms *clusterv1.MachineSet) ctrl.Result {
+	log := ctrl.LoggerFrom(ctx)
+	// If the version is not defined on the MachineSet then we cannot check for the version skew policies.
+	// Return early.
+	if ms.Spec.Template.Spec.Version == nil {
+		return ctrl.Result{}
+	}
+	msVersion := *ms.Spec.Template.Spec.Version
+
+	// If using kubeadm bootstrap provider, check the kubeadm version skew policy.
+	// => MS version should match the Control Plane version.
+	// kubeadm skew policy: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/#kubeadm-s-skew-against-kubeadm
+	kubeadmBootstrapProviderUsed := ms.Spec.Template.Spec.Bootstrap.ConfigRef != nil &&
+		ms.Spec.Template.Spec.Bootstrap.ConfigRef.Kind == "KubeadmConfigTemplate"
+	if kubeadmBootstrapProviderUsed {
+		if cpVersion != msVersion {
+			log.Info(fmt.Sprintf("Pre-flight check failed: MachineSet version (%s) and ControlPlane version (%s) do not conform to kubeadm version skew policy: kubeadm bootstrap provider only supports joining with the same version as the control plane", msVersion, cpVersion))
+			return ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}
+		}
+	}
+	return ctrl.Result{}
+}
+
 func reconcileExternalTemplateReference(ctx context.Context, c client.Client, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {
 	if !strings.HasSuffix(ref.Kind, clusterv1.TemplateSuffix) {
 		return nil
@@ -993,4 +1161,20 @@ func reconcileExternalTemplateReference(ctx context.Context, c client.Client, cl
 	}))
 
 	return patchHelper.Patch(ctx, obj)
+}
+
+func skippablePreflightChecks(ms *clusterv1.MachineSet) sets.Set[string] {
+	skippable := sets.Set[string]{}
+	if ms == nil {
+		return skippable
+	}
+	skip := ms.Annotations[clusterv1.MachineSetSkipPreflightChecksAnnotation]
+	if skip == "" {
+		return skippable
+	}
+	skippableList := strings.Split(skip, ",")
+	for i := range skippableList {
+		skippable.Insert(strings.TrimSpace(skippableList[i]))
+	}
+	return skippable
 }
