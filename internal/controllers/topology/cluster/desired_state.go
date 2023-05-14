@@ -424,10 +424,14 @@ func (r *Reconciler) computeControlPlaneVersion(ctx context.Context, s *scope.Sc
 	}
 
 	// If the control plane is not upgrading or scaling, we can assume the control plane is stable.
-	// However, we should also check for the MachineDeployments to be stable.
-	// If the MachineDeployments are rolling out (still completing a previous upgrade), then do not pick
-	// up the desiredVersion yet. We will pick up the new version after the MachineDeployments are stable.
-	if s.Current.MachineDeployments.IsAnyRollingOut() {
+	// However, we should also check for the MachineDeployments upgrading.
+	// If the MachineDeployments are upgrading, then do not pick up the desiredVersion yet.
+	// We will pick up the new version after the MachineDeployments finish upgrading.
+	mdUpgradingNames, err := s.Current.MachineDeployments.Upgrading(ctx, r.Client)
+	if err != nil {
+		return *currentVersion, errors.Wrap(err, "failed to check if any MachineDeployment is upgrading")
+	}
+	if len(mdUpgradingNames) > 0 {
 		return *currentVersion, nil
 	}
 
