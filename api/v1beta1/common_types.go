@@ -121,20 +121,11 @@ const (
 	// preflight checks that should be skipped during the MachineSet reconciliation.
 	// Supported items are:
 	// - kubeadm (skips the kubeadm version skew preflight check)
-	// Example: "cluster.x-k8s.io/skip-machineset-preflight-checks": "controlplane,kubeadm".
-	MachineSetSkipPreflightChecksAnnotation = "cluster.x-k8s.io/skip-machineset-preflight-checks"
-
-	// MachineSetPreflightCheckAll can be used to represent all the MachineSet preflight checks.
-	MachineSetPreflightCheckAll = "all"
-
-	// MachineSetPreflightCheckKubeadm is the name of the kubeadm preflight check.
-	MachineSetPreflightCheckKubeadm = "kubeadm"
-
-	// MachineSetPreflightCheckKubernetes is the name of the kubernetes preflight check.
-	MachineSetPreflightCheckKubernetes = "kubernetes"
-
-	// MachineSetPreflightCheckControlPlane is the name of the control plane preflight check.
-	MachineSetPreflightCheckControlPlane = "controlplane"
+	// - kubernetes (skips the kubernetes version skew preflight check)
+	// - controlplane (skips checking that the control plane is neither provisioning nor upgrading)
+	// - all (skips all preflight checks)
+	// Example: "machineset.cluster.x-k8s.io/skip-preflight-checks": "controlplane,kubeadm".
+	MachineSetSkipPreflightChecksAnnotation = "machineset.cluster.x-k8s.io/skip-preflight-checks"
 
 	// ClusterSecretType defines the type of secret created by core components.
 	// Note: This is used by core CAPI, CAPBK, and KCP to determine whether a secret is created by the controllers
@@ -170,6 +161,26 @@ const (
 	// VariableDefinitionFromInline indicates a patch or variable was defined in the `.spec` of a ClusterClass
 	// rather than from an external patch extension.
 	VariableDefinitionFromInline = "inline"
+)
+
+// MachineSetPreflightCheck defines a valid machine set preflight check.
+type MachineSetPreflightCheck string
+
+const (
+	// MachineSetPreflightCheckAll can be used to represent all the MachineSet preflight checks.
+	MachineSetPreflightCheckAll MachineSetPreflightCheck = "all"
+
+	// MachineSetPreflightCheckKubeadm is the name of the kubeadm preflight check.
+	// It checks that the MachineSet and the ControlPlane conform to kubeadm version skew policy.
+	MachineSetPreflightCheckKubeadm MachineSetPreflightCheck = "kubeadm"
+
+	// MachineSetPreflightCheckKubernetes is the name of the kubernetes preflight check.
+	// It checks that the MachineSet and the ControlPlane conform to kubernetes version skew policy.
+	MachineSetPreflightCheckKubernetes MachineSetPreflightCheck = "kubernetes"
+
+	// MachineSetPreflightCheckControlPlane is the name of the control plane preflight check.
+	// It checks that the control plane is not provisioning and no upgrading.
+	MachineSetPreflightCheckControlPlane MachineSetPreflightCheck = "controlplane"
 )
 
 // NodeUninitializedTaint can be added to Nodes at creation by the bootstrap provider, e.g. the

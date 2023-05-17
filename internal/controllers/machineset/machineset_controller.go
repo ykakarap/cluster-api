@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/storage/names"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
@@ -73,8 +75,9 @@ var (
 
 const machineSetManagerName = "capi-machineset"
 
-// preflightFailedRequeueAfter is how long to wait before trying to scale
-// up if some preflight check  has failed.
+// preflightFailedRequeueAfter is how long to wait before trying to create new
+// machines if some preflight check  has failed.
+// This is sued to requeue the MachineSet to re-verify the preflight checks if the preflight checks fail.
 const preflightFailedRequeueAfter = 15 * time.Second
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
@@ -304,35 +307,41 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, 
 
 	result := ctrl.Result{}
 	// Remediate failed Machines by deleting them.
-	preFlightChecksResult, err := r.runPreFlightChecks(ctx, cluster, machineSet)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	var errs []error
+	machinesToRemediate := make([]*clusterv1.Machine, 0, len(filteredMachines))
 	for _, machine := range filteredMachines {
-		log := log.WithValues("Machine", klog.KObj(machine))
 		// filteredMachines contains machines in deleting status to calculate correct status.
 		// skip remediation for those in deleting status.
 		if !machine.DeletionTimestamp.IsZero() {
 			continue
 		}
 		if conditions.IsFalse(machine, clusterv1.MachineOwnerRemediatedCondition) {
-			// Delete the machines only if the pre-flight checks have passed. Do not delete machines if we cannot
-			// guarantee creating new machines.
-			if !preFlightChecksResult.IsZero() {
-				result = util.LowestNonZeroResult(result, preFlightChecksResult)
-				break
+			machinesToRemediate = append(machinesToRemediate, machine)
+		}
+	}
+
+	if len(machinesToRemediate) > 0 {
+		preFlightChecksResult, err := r.runPreFlightChecks(ctx, cluster, machineSet)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		// Delete the machines only if the pre-flight checks have passed. Do not delete machines if we cannot
+		// guarantee creating new machines.
+		if preFlightChecksResult.IsZero() {
+			for _, machine := range machinesToRemediate {
+				log.Info("Deleting machine because marked as unhealthy by the MachineHealthCheck controller")
+				patch := client.MergeFrom(machine.DeepCopy())
+				if err := r.Client.Delete(ctx, machine); err != nil {
+					errs = append(errs, errors.Wrap(err, "failed to delete"))
+					continue
+				}
+				conditions.MarkTrue(machine, clusterv1.MachineOwnerRemediatedCondition)
+				if err := r.Client.Status().Patch(ctx, machine, patch); err != nil && !apierrors.IsNotFound(err) {
+					errs = append(errs, errors.Wrap(err, "failed to update status"))
+				}
 			}
-			log.Info("Deleting machine because marked as unhealthy by the MachineHealthCheck controller")
-			patch := client.MergeFrom(machine.DeepCopy())
-			if err := r.Client.Delete(ctx, machine); err != nil {
-				errs = append(errs, errors.Wrap(err, "failed to delete"))
-				continue
-			}
-			conditions.MarkTrue(machine, clusterv1.MachineOwnerRemediatedCondition)
-			if err := r.Client.Status().Patch(ctx, machine, patch); err != nil && !apierrors.IsNotFound(err) {
-				errs = append(errs, errors.Wrap(err, "failed to update status"))
-			}
+		} else {
+			result = util.LowestNonZeroResult(result, preFlightChecksResult)
 		}
 	}
 
@@ -995,9 +1004,9 @@ func (r *Reconciler) getMachineNode(ctx context.Context, cluster *clusterv1.Clus
 }
 
 func (r *Reconciler) runPreFlightChecks(ctx context.Context, cluster *clusterv1.Cluster, ms *clusterv1.MachineSet) (ctrl.Result, error) {
-	skippable := skippablePreflightChecks(ms)
+	skipped := skippedPreflightChecks(ms)
 	// If all the preflight checks are skipped then return early.
-	if skippable.Has(clusterv1.MachineSetPreflightCheckAll) {
+	if skipped.Has(clusterv1.MachineSetPreflightCheckAll) {
 		return ctrl.Result{}, nil
 	}
 
@@ -1018,30 +1027,30 @@ func (r *Reconciler) runPreFlightChecks(ctx context.Context, cluster *clusterv1.
 	// we do not have enough information. Return early.
 	cpVersion, err := contract.ControlPlane().Version().Get(controlPlane)
 	if err != nil {
-		if errors.Is(err, contract.ErrNotFound) {
+		if errors.Is(err, contract.ErrFieldNotFound) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, errors.Wrapf(err, "failed to perform pre-flight checks: failed to get the version of ControlPlane %s", cpKlogRef)
 	}
 
 	// Run the control plane preflight check.
-	if !skippable.Has(clusterv1.MachineSetPreflightCheckControlPlane) {
+	if !skipped.Has(clusterv1.MachineSetPreflightCheckControlPlane) {
 		if result, err := r.controlPlaneStablePreflightCheck(ctx, controlPlane); err != nil || !result.IsZero() {
 			return result, errors.Wrap(err, "failed to perform pre-flight checks")
 		}
 	}
 
 	// Run the kubernetes version skew preflight check.
-	if !skippable.Has(clusterv1.MachineSetPreflightCheckKubernetes) {
+	if !skipped.Has(clusterv1.MachineSetPreflightCheckKubernetes) {
 		if result, err := r.kubernetesVersionPreflightCheck(ctx, *cpVersion, ms); err != nil || !result.IsZero() {
 			return result, errors.Wrap(err, "failed to perform pre-flight checks")
 		}
 	}
 
 	// Run the kubeadm version skew preflight check.
-	if !skippable.Has(clusterv1.MachineSetPreflightCheckKubeadm) {
-		if result := r.kubeadmVersionPreflightCheck(ctx, *cpVersion, ms); !result.IsZero() {
-			return result, nil
+	if !skipped.Has(clusterv1.MachineSetPreflightCheckKubeadm) {
+		if result, err := r.kubeadmVersionPreflightCheck(ctx, *cpVersion, ms); err != nil || !result.IsZero() {
+			return result, errors.Wrap(err, "failed to perform pre-flight checks")
 		}
 	}
 
@@ -1111,27 +1120,37 @@ func (r *Reconciler) kubernetesVersionPreflightCheck(ctx context.Context, cpVers
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) kubeadmVersionPreflightCheck(ctx context.Context, cpVersion string, ms *clusterv1.MachineSet) ctrl.Result {
+func (r *Reconciler) kubeadmVersionPreflightCheck(ctx context.Context, cpVersion string, ms *clusterv1.MachineSet) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	// If the version is not defined on the MachineSet then we cannot check for the version skew policies.
 	// Return early.
 	if ms.Spec.Template.Spec.Version == nil {
-		return ctrl.Result{}
+		return ctrl.Result{}, nil
 	}
 	msVersion := *ms.Spec.Template.Spec.Version
+
+	// If the bootstrap.configRef is nil return early.
+	if ms.Spec.Template.Spec.Bootstrap.ConfigRef == nil {
+		return ctrl.Result{}, nil
+	}
 
 	// If using kubeadm bootstrap provider, check the kubeadm version skew policy.
 	// => MS version should match the Control Plane version.
 	// kubeadm skew policy: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/#kubeadm-s-skew-against-kubeadm
-	kubeadmBootstrapProviderUsed := ms.Spec.Template.Spec.Bootstrap.ConfigRef != nil &&
-		ms.Spec.Template.Spec.Bootstrap.ConfigRef.Kind == "KubeadmConfigTemplate"
+	bootstrapConfigRef := ms.Spec.Template.Spec.Bootstrap.ConfigRef
+	groupVersion, err := schema.ParseGroupVersion(bootstrapConfigRef.APIVersion)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to perform kubeadm version skew pre-flight check: failed to parse APIVersion %s", bootstrapConfigRef.APIVersion)
+	}
+	kubeadmBootstrapProviderUsed := bootstrapConfigRef.Kind == "KubeadmConfigTemplate" &&
+		groupVersion.Group == bootstrapv1.GroupVersion.Group
 	if kubeadmBootstrapProviderUsed {
 		if cpVersion != msVersion {
 			log.Info(fmt.Sprintf("Pre-flight check failed: MachineSet version (%s) and ControlPlane version (%s) do not conform to kubeadm version skew policy: kubeadm bootstrap provider only supports joining with the same version as the control plane", msVersion, cpVersion))
-			return ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}
+			return ctrl.Result{RequeueAfter: preflightFailedRequeueAfter}, nil
 		}
 	}
-	return ctrl.Result{}
+	return ctrl.Result{}, nil
 }
 
 func reconcileExternalTemplateReference(ctx context.Context, c client.Client, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {
@@ -1163,18 +1182,18 @@ func reconcileExternalTemplateReference(ctx context.Context, c client.Client, cl
 	return patchHelper.Patch(ctx, obj)
 }
 
-func skippablePreflightChecks(ms *clusterv1.MachineSet) sets.Set[string] {
-	skippable := sets.Set[string]{}
+func skippedPreflightChecks(ms *clusterv1.MachineSet) sets.Set[clusterv1.MachineSetPreflightCheck] {
+	skippaed := sets.Set[clusterv1.MachineSetPreflightCheck]{}
 	if ms == nil {
-		return skippable
+		return skippaed
 	}
 	skip := ms.Annotations[clusterv1.MachineSetSkipPreflightChecksAnnotation]
 	if skip == "" {
-		return skippable
+		return skippaed
 	}
-	skippableList := strings.Split(skip, ",")
-	for i := range skippableList {
-		skippable.Insert(strings.TrimSpace(skippableList[i]))
+	skippedList := strings.Split(skip, ",")
+	for i := range skippedList {
+		skippaed.Insert(clusterv1.MachineSetPreflightCheck(strings.TrimSpace(skippedList[i])))
 	}
-	return skippable
+	return skippaed
 }

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/internal/contract"
 	"sigs.k8s.io/cluster-api/internal/test/builder"
@@ -1387,7 +1388,7 @@ func TestMachineSetReconciler_runPreFlightChecks(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns,
 					Annotations: map[string]string{
-						clusterv1.MachineSetSkipPreflightChecksAnnotation: clusterv1.MachineSetPreflightCheckAll,
+						clusterv1.MachineSetSkipPreflightChecksAnnotation: string(clusterv1.MachineSetPreflightCheckAll),
 					},
 				},
 			},
@@ -1434,7 +1435,7 @@ func TestMachineSetReconciler_runPreFlightChecks(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns,
 					Annotations: map[string]string{
-						clusterv1.MachineSetSkipPreflightChecksAnnotation: clusterv1.MachineSetPreflightCheckControlPlane,
+						clusterv1.MachineSetSkipPreflightChecksAnnotation: string(clusterv1.MachineSetPreflightCheckControlPlane),
 					},
 				},
 				Spec: clusterv1.MachineSetSpec{
@@ -1546,7 +1547,7 @@ func TestMachineSetReconciler_runPreFlightChecks(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns,
 					Annotations: map[string]string{
-						clusterv1.MachineSetSkipPreflightChecksAnnotation: clusterv1.MachineSetPreflightCheckKubernetes,
+						clusterv1.MachineSetSkipPreflightChecksAnnotation: string(clusterv1.MachineSetPreflightCheckKubernetes),
 					},
 				},
 				Spec: clusterv1.MachineSetSpec{
@@ -1602,8 +1603,11 @@ func TestMachineSetReconciler_runPreFlightChecks(t *testing.T) {
 				Spec: clusterv1.MachineSetSpec{
 					Template: clusterv1.MachineTemplateSpec{
 						Spec: clusterv1.MachineSpec{
-							Version:   pointer.String("v1.26.5"),
-							Bootstrap: clusterv1.Bootstrap{ConfigRef: &corev1.ObjectReference{Kind: "KubeadmConfigTemplate"}},
+							Version: pointer.String("v1.26.5"),
+							Bootstrap: clusterv1.Bootstrap{ConfigRef: &corev1.ObjectReference{
+								APIVersion: bootstrapv1.GroupVersion.String(),
+								Kind:       "KubeadmConfigTemplate",
+							}},
 						},
 					},
 				},
@@ -1650,14 +1654,17 @@ func TestMachineSetReconciler_runPreFlightChecks(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns,
 					Annotations: map[string]string{
-						clusterv1.MachineSetSkipPreflightChecksAnnotation: clusterv1.MachineSetPreflightCheckKubeadm,
+						clusterv1.MachineSetSkipPreflightChecksAnnotation: string(clusterv1.MachineSetPreflightCheckKubeadm),
 					},
 				},
 				Spec: clusterv1.MachineSetSpec{
 					Template: clusterv1.MachineTemplateSpec{
 						Spec: clusterv1.MachineSpec{
-							Version:   pointer.String("v1.26.0"),
-							Bootstrap: clusterv1.Bootstrap{ConfigRef: &corev1.ObjectReference{Kind: "KubeadmConfigTemplate"}},
+							Version: pointer.String("v1.26.0"),
+							Bootstrap: clusterv1.Bootstrap{ConfigRef: &corev1.ObjectReference{
+								APIVersion: bootstrapv1.GroupVersion.String(),
+								Kind:       "KubeadmConfigTemplate",
+							}},
 						},
 					},
 				},
@@ -1682,8 +1689,11 @@ func TestMachineSetReconciler_runPreFlightChecks(t *testing.T) {
 				Spec: clusterv1.MachineSetSpec{
 					Template: clusterv1.MachineTemplateSpec{
 						Spec: clusterv1.MachineSpec{
-							Version:   pointer.String("v1.26.2"),
-							Bootstrap: clusterv1.Bootstrap{ConfigRef: &corev1.ObjectReference{Kind: "KubeadmConfigTemplate"}},
+							Version: pointer.String("v1.26.2"),
+							Bootstrap: clusterv1.Bootstrap{ConfigRef: &corev1.ObjectReference{
+								APIVersion: bootstrapv1.GroupVersion.String(),
+								Kind:       "KubeadmConfigTemplate",
+							}},
 						},
 					},
 				},
