@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
+	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/internal/contract"
 	"sigs.k8s.io/cluster-api/internal/controllers/machine"
 	capilabels "sigs.k8s.io/cluster-api/internal/labels"
@@ -1004,6 +1005,11 @@ func (r *Reconciler) getMachineNode(ctx context.Context, cluster *clusterv1.Clus
 }
 
 func (r *Reconciler) runPreFlightChecks(ctx context.Context, cluster *clusterv1.Cluster, ms *clusterv1.MachineSet) (ctrl.Result, error) {
+	// If the MachineSetPreflightChecks feature gate is disabled return early.
+	if !feature.Gates.Enabled(feature.MachineSetPreflightChecks) {
+		return ctrl.Result{}, nil
+	}
+
 	skipped := skippedPreflightChecks(ms)
 	// If all the preflight checks are skipped then return early.
 	if skipped.Has(clusterv1.MachineSetPreflightCheckAll) {

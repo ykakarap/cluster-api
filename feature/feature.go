@@ -60,6 +60,11 @@ const (
 	//
 	// alpha: v1.4
 	LazyRestmapper featuregate.Feature = "LazyRestmapper"
+
+	// MachineSetPreflightChecks is a feature fate for the MachineSet preflight checks functionality.
+	//
+	// alpha: v1.5
+	MachineSetPreflightChecks featuregate.Feature = "MachineSetPreflightChecks"
 )
 
 func init() {
@@ -76,4 +81,5 @@ var defaultClusterAPIFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	KubeadmBootstrapFormatIgnition: {Default: false, PreRelease: featuregate.Alpha},
 	RuntimeSDK:                     {Default: false, PreRelease: featuregate.Alpha},
 	LazyRestmapper:                 {Default: false, PreRelease: featuregate.Alpha},
+	MachineSetPreflightChecks:      {Default: false, PreRelease: featuregate.Alpha},
 }
