@@ -74,12 +74,6 @@ func (mds MachineDeploymentsStateMap) RollingOut() []string {
 	return names
 }
 
-// IsAnyRollingOut returns true if at least one of the
-// machine deployments is rolling out. False, otherwise.
-func (mds MachineDeploymentsStateMap) IsAnyRollingOut() bool {
-	return len(mds.RollingOut()) != 0
-}
-
 // Upgrading returns the list of the machine deployments
 // that are upgrading.
 func (mds MachineDeploymentsStateMap) Upgrading(ctx context.Context, c client.Client) ([]string, error) {
