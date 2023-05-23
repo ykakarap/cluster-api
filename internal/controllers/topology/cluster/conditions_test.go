@@ -230,7 +230,7 @@ func TestReconcileTopologyReconciledCondition(t *testing.T) {
 				UpgradeTracker: func() *scope.UpgradeTracker {
 					ut := scope.NewUpgradeTracker()
 					ut.ControlPlane.PendingUpgrade = true
-					ut.MachineDeployments.MarkUpgradingAndRollingOut("md0-abc123")
+					ut.MachineDeployments.MarkUpgrading("md0-abc123")
 					return ut
 				}(),
 				HookResponseTracker: scope.NewHookResponseTracker(),
@@ -450,7 +450,7 @@ func TestReconcileTopologyReconciledCondition(t *testing.T) {
 				UpgradeTracker: func() *scope.UpgradeTracker {
 					ut := scope.NewUpgradeTracker()
 					ut.ControlPlane.PendingUpgrade = false
-					ut.MachineDeployments.MarkUpgradingAndRollingOut("md0-abc123")
+					ut.MachineDeployments.MarkUpgrading("md0-abc123")
 					ut.MachineDeployments.MarkPendingUpgrade("md1-abc123")
 					return ut
 				}(),

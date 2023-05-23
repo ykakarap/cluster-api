@@ -845,7 +845,7 @@ func TestComputeControlPlaneVersion(t *testing.T) {
 					HookResponseTracker: scope.NewHookResponseTracker(),
 				}
 				if len(tt.upgradingMachineDeployments) > 0 {
-					s.UpgradeTracker.MachineDeployments.MarkUpgradingAndRollingOut(tt.upgradingMachineDeployments...)
+					s.UpgradeTracker.MachineDeployments.MarkUpgrading(tt.upgradingMachineDeployments...)
 				}
 
 				runtimeClient := fakeruntimeclient.NewRuntimeClientBuilder().
@@ -1686,7 +1686,7 @@ func TestComputeMachineDeployment(t *testing.T) {
 					Name:     "big-pool-of-machines",
 					Replicas: pointer.Int32(2),
 				}
-				s.UpgradeTracker.MachineDeployments.MarkUpgradingAndRollingOut(tt.upgradingMachineDeployments...)
+				s.UpgradeTracker.MachineDeployments.MarkUpgrading(tt.upgradingMachineDeployments...)
 				obj, err := computeMachineDeployment(ctx, s, desiredControlPlaneState, mdTopology)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(*obj.Object.Spec.Template.Spec.Version).To(Equal(tt.expectedVersion))
@@ -1884,7 +1884,7 @@ func TestComputeMachineDeploymentVersion(t *testing.T) {
 				UpgradeTracker: scope.NewUpgradeTracker(scope.MaxMDUpgradeConcurrency(tt.upgradeConcurrency)),
 			}
 			desiredControlPlaneState := &scope.ControlPlaneState{Object: tt.desiredControlPlane}
-			s.UpgradeTracker.MachineDeployments.MarkUpgradingAndRollingOut(tt.upgradingMachineDeployments...)
+			s.UpgradeTracker.MachineDeployments.MarkUpgrading(tt.upgradingMachineDeployments...)
 			version, err := computeMachineDeploymentVersion(s, tt.machineDeploymentTopology, desiredControlPlaneState, tt.currentMachineDeploymentState)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(version).To(Equal(tt.expectedVersion))
