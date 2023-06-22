@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -226,12 +227,16 @@ func scaleSpec(ctx context.Context, inputGetter func() scaleSpecInput) {
 			clusterNames = append(clusterNames, name)
 		}
 
+		// Modify the baseClusterTemplateYAML so that it has 500 machine deployments.
+		modifiedBaseTemplateYAML, err := addMachineDeployments(baseClusterTemplateYAML, 500)
+		Expect(err).NotTo(HaveOccurred())
+
 		clusterCreateResults, err := workConcurrentlyAndWait(ctx, workConcurrentlyAndWaitInput{
 			ClusterNames: clusterNames,
 			Concurrency:  concurrency,
 			FailFast:     input.FailFast,
 			WorkerFunc: func(ctx context.Context, inputChan chan string, resultChan chan workResult, wg *sync.WaitGroup) {
-				createClusterAndWaitWorker(ctx, inputChan, resultChan, wg, baseClusterTemplateYAML, baseClusterName, clusterctl.ApplyCustomClusterTemplateAndWaitInput{
+				createClusterAndWaitWorker(ctx, inputChan, resultChan, wg, modifiedBaseTemplateYAML, baseClusterName, clusterctl.ApplyCustomClusterTemplateAndWaitInput{
 					ClusterProxy:                 input.BootstrapClusterProxy,
 					Namespace:                    namespace.Name,
 					WaitForClusterIntervals:      input.E2EConfig.GetIntervals(specName, "wait-cluster"),
@@ -494,4 +499,37 @@ func deleteClusterAndWaitWorker(ctx context.Context, inputChan <-chan string, re
 type workResult struct {
 	clusterName string
 	err         any
+}
+
+func addMachineDeployments(baseClusterTemplateYAML []byte, count int) ([]byte, error) {
+	objs, err := yaml.ToUnstructured(baseClusterTemplateYAML)
+	if err != nil {
+		return nil, err
+	}
+	scheme := runtime.NewScheme()
+	framework.TryAddDefaultSchemes(scheme)
+	cluster := &clusterv1.Cluster{}
+	if err := scheme.Convert(&objs[0], cluster, nil); err != nil {
+		return nil, err
+	}
+	if cluster.Spec.Topology == nil {
+		return nil, errors.Errorf("Need a ClusterClass based Cluster")
+	}
+	defaultMD := cluster.Spec.Topology.Workers.MachineDeployments[0]
+	allMDs := make([]clusterv1.MachineDeploymentTopology, count)
+	for i := 1; i <= count; i++ {
+		md := defaultMD.DeepCopy()
+		md.Name = fmt.Sprintf("md-%d", i)
+		allMDs[i-1] = *md
+	}
+	cluster.Spec.Topology.Workers.MachineDeployments = allMDs
+	u := &unstructured.Unstructured{}
+	if err := scheme.Convert(cluster, u, nil); err != nil {
+		return nil, err
+	}
+	modifiedClusterYAML, err := yaml.FromUnstructured([]unstructured.Unstructured{*u})
+	if err != nil {
+		return nil, err
+	}
+	return modifiedClusterYAML, nil
 }
