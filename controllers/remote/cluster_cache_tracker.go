@@ -643,6 +643,65 @@ func (t *ClusterCacheTracker) Watch(ctx context.Context, input WatchInput) error
 	return nil
 }
 
+// TypedWatcher is a scoped-down interface from Controller that only knows how to watch.
+type TypedWatcher[request comparable] interface {
+	Watch(src source.TypedSource[request]) error
+}
+
+// TypedWatchInput specifies the parameters used to establish a new watch for a remote cluster.
+type TypedWatchInput[object client.Object, request comparable] struct {
+	// Name represents a unique watch request for the specified Cluster.
+	Name string
+
+	// Cluster is the key for the remote cluster.
+	Cluster client.ObjectKey
+
+	// Watcher is the watcher (controller) whose Reconcile() function will be called for events.
+	Watcher TypedWatcher[request]
+
+	// Kind is the type of resource to watch.
+	Kind object
+
+	// EventHandler contains the event handlers to invoke for resource events.
+	EventHandler handler.TypedEventHandler[object, request]
+
+	// Predicates is used to filter resource events.
+	Predicates []predicate.TypedPredicate[object]
+}
+
+// TypedWatch starts a watcher using the cluster cache tracker.
+func TypedWatch[object client.Object, request comparable](ctx context.Context, t *ClusterCacheTracker, input TypedWatchInput[object, request]) error {
+	if input.Name == "" {
+		return errors.New("input.Name is required")
+	}
+
+	accessor, err := t.getClusterAccessor(ctx, input.Cluster)
+	if err != nil {
+		return errors.Wrapf(err, "failed to add %T watch on cluster %s", input.Kind, klog.KRef(input.Cluster.Namespace, input.Cluster.Name))
+	}
+
+	// We have to lock the cluster, so that the watch is not created multiple times in parallel.
+	ok := t.clusterLock.TryLock(input.Cluster)
+	if !ok {
+		return errors.Wrapf(ErrClusterLocked, "failed to add %T watch on cluster %s: failed to get lock for cluster (probably because another worker is trying to create the client at the moment)", input.Kind, klog.KRef(input.Cluster.Namespace, input.Cluster.Name))
+	}
+	defer t.clusterLock.Unlock(input.Cluster)
+
+	if accessor.watches.Has(input.Name) {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(6).Info(fmt.Sprintf("Watch %s already exists", input.Name), "Cluster", klog.KRef(input.Cluster.Namespace, input.Cluster.Name))
+		return nil
+	}
+
+	if err := input.Watcher.Watch(source.TypedKind[object, request](accessor.cache, input.Kind, input.EventHandler, input.Predicates...)); err != nil {
+		return errors.Wrapf(err, "failed to add %T watch on cluster %s: failed to create watch", input.Kind, klog.KRef(input.Cluster.Namespace, input.Cluster.Name))
+	}
+
+	accessor.watches.Insert(input.Name)
+
+	return nil
+}
+
 // healthCheckInput provides the input for the healthCheckCluster method.
 type healthCheckInput struct {
 	cluster            client.ObjectKey
