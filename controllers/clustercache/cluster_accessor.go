@@ -32,6 +32,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"sigs.k8s.io/cluster-api/util/certs"
@@ -410,13 +412,13 @@ func (ca *clusterAccessor) GetClientCertificatePrivateKey(ctx context.Context) *
 // Each unique watch (by input.Name) is only added once after a Connect (otherwise we return early).
 // During a disconnect existing watches (i.e. informers) are shutdown when stopping the cache.
 // After a re-connect watches will be re-added (assuming the Watch method is called again).
-func (ca *clusterAccessor) Watch(ctx context.Context, input WatchInput) error {
-	if input.Name == "" {
-		return errors.New("input.Name is required")
+func (ca *clusterAccessor) Watch(ctx context.Context, watcher Watcher) error {
+	if watcher.Name() == "" {
+		return errors.New("watcher.Name() cannot be empty")
 	}
 
 	if !ca.Connected(ctx) {
-		return errors.Wrapf(ErrClusterNotConnected, "error creating watch %s for %T", input.Name, input.Kind)
+		return errors.Wrapf(ErrClusterNotConnected, "error creating watch %s for %s", watcher.Name(), watcher.KindType())
 	}
 
 	log := ctrl.LoggerFrom(ctx)
@@ -429,21 +431,21 @@ func (ca *clusterAccessor) Watch(ctx context.Context, input WatchInput) error {
 
 	// Checking connection again while holding the lock, because maybe Disconnect was called since checking above.
 	if ca.lockedState.connection == nil {
-		return errors.Wrapf(ErrClusterNotConnected, "error creating watch %s for %T", input.Name, input.Kind)
+		return errors.Wrapf(ErrClusterNotConnected, "error creating watch %s for %s", watcher.Name(), watcher.KindType())
 	}
 
 	// Return early if the watch was already added.
-	if ca.lockedState.connection.watches.Has(input.Name) {
-		log.V(6).Info(fmt.Sprintf("Skip creation of watch %s for %T because it already exists", input.Name, input.Kind))
+	if ca.lockedState.connection.watches.Has(watcher.Name()) {
+		log.V(6).Info(fmt.Sprintf("Skip creation of watch %s for %s because it already exists", watcher.Name(), watcher.KindType()))
 		return nil
 	}
 
-	log.Info(fmt.Sprintf("Creating watch %s for %T", input.Name, input.Kind))
-	if err := input.Watcher.Watch(source.Kind(ca.lockedState.connection.cache, input.Kind, input.EventHandler, input.Predicates...)); err != nil {
-		return errors.Wrapf(err, "error creating watch %s for %T", input.Name, input.Kind)
+	log.Info(fmt.Sprintf("Creating watch %s for %s", watcher.Name(), watcher.KindType()))
+	if err := watcher.Watch(ca.lockedState.connection.cache); err != nil {
+		return errors.Wrapf(err, "error creating watch %s for %s", watcher.Name(), watcher.KindType())
 	}
 
-	ca.lockedState.connection.watches.Insert(input.Name)
+	ca.lockedState.connection.watches.Insert(watcher.Name())
 	return nil
 }
 
@@ -494,4 +496,81 @@ func (ca *clusterAccessor) unlock(ctx context.Context) {
 	log.V(10).Info("Removing lock for ClusterAccessor")
 	ca.lockedStateLock.Unlock()
 	log.V(10).Info("Removed lock for ClusterAccessor")
+}
+
+// ScopedWatcher is a scoped-down interface from Controller that only has the Watch func.
+type ScopedWatcher[request comparable] interface {
+	Watch(src source.TypedSource[request]) error
+}
+
+// WatchInput specifies the parameters used to establish a new watch for a workload cluster.
+// A source.TypedKind source (configured with Kind, TypedEventHandler and Predicates) will be added to the Watcher.
+// To watch for events, the source.TypedKind will create an informer on the Cache that we have created and cached
+// for the given Cluster.
+type WatchInput = TypedWatchInput[client.Object, ctrl.Request]
+
+// TypedWatchInput specifies the parameters used to establish a new watch for a workload cluster.
+// A source.TypedKind source (configured with Kind, TypedEventHandler and Predicates) will be added to the Watcher.
+// To watch for events, the source.TypedKind will create an informer on the Cache that we have created and cached
+// for the given Cluster.
+type TypedWatchInput[object client.Object, request comparable] struct {
+	// Name represents a unique Watch request for the specified Cluster.
+	// The name is used to track that a specific watch is only added once to a cache.
+	// After a connection (and thus also the cache) has been re-created, watches have to be added
+	// again by calling the Watch method again.
+	Name string
+
+	// Watcher is the watcher (controller) whose Reconcile() function will be called for events.
+	Watcher ScopedWatcher[request]
+
+	// Kind is the type of resource to watch.
+	Kind object
+
+	// EventHandler contains the event handlers to invoke for resource events.
+	EventHandler handler.TypedEventHandler[object, request]
+
+	// Predicates is used to filter resource events.
+	Predicates []predicate.TypedPredicate[object]
+}
+
+// NewWatcher creates a Watcher on the workload cluster.
+// A source.TypedKind source (configured with Kind, TypedEventHandler and Predicates) will be added to the ScopedWatcher.
+// To watch for events, the source.TypedKind will create an informer on the Cache that we have created and cached
+// for the given Cluster.
+func NewWatcher(input WatchInput) Watcher {
+	return &typedWatcher[client.Object, ctrl.Request]{
+		name:         input.Name,
+		kind:         input.Kind,
+		eventHandler: input.EventHandler,
+		predicates:   input.Predicates,
+		watcher:      input.Watcher,
+	}
+}
+
+// NewTypedWatcher creates a Watcher on the workload cluster.
+// A source.TypedKind source (configured with Kind, TypedEventHandler and Predicates) will be added to the ScopedWatcher.
+// To watch for events, the source.TypedKind will create an informer on the Cache that we have created and cached
+// for the given Cluster.
+func NewTypedWatcher[object client.Object, request comparable](input TypedWatchInput[object, request]) Watcher {
+	return &typedWatcher[object, request]{
+		name:         input.Name,
+		kind:         input.Kind,
+		eventHandler: input.EventHandler,
+		predicates:   input.Predicates,
+		watcher:      input.Watcher,
+	}
+}
+
+type typedWatcher[object client.Object, request comparable] struct {
+	name         string
+	kind         object
+	eventHandler handler.TypedEventHandler[object, request]
+	predicates   []predicate.TypedPredicate[object]
+	watcher      ScopedWatcher[request]
+}
+
+func (tw *typedWatcher[object, request]) Name() string     { return tw.name }
+func (tw *typedWatcher[object, request]) KindType() string { return fmt.Sprintf("%T", tw.kind) }
+func (tw *typedWatcher[object, request]) Watch(cache cache.Cache) error {
+	return tw.watcher.Watch(source.TypedKind[object, request](cache, tw.kind, tw.eventHandler, tw.predicates...))
 }

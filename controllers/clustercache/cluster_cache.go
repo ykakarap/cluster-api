@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -149,7 +148,7 @@ type ClusterCache interface {
 	// During a disconnect existing watches (i.e. informers) are shutdown when stopping the cache.
 	// After a re-connect watches will be re-added (assuming the Watch method is called again).
 	// If there is no connection to the workload cluster ErrClusterNotConnected will be returned.
-	Watch(ctx context.Context, cluster client.ObjectKey, input WatchInput) error
+	Watch(ctx context.Context, cluster client.ObjectKey, watcher Watcher) error
 
 	// GetLastProbeSuccessTimestamp returns the time when the health probe was successfully executed last.
 	GetLastProbeSuccessTimestamp(ctx context.Context, cluster client.ObjectKey) time.Time
@@ -169,34 +168,11 @@ type ClusterCache interface {
 // because there is no connection to the workload cluster.
 var ErrClusterNotConnected = errors.New("connection to the workload cluster is down")
 
-// Watcher is a scoped-down interface from Controller that only has the Watch func.
+// Watcher is an interface that can start a Watch.
 type Watcher interface {
-	// Watch watches the provided Source.
-	Watch(src source.Source) error
-}
-
-// WatchInput specifies the parameters used to establish a new watch for a workload cluster.
-// A source.Kind source (configured with Kind, EventHandler and Predicates) will be added to the Watcher.
-// To watch for events, the source.Kind will create an informer on the Cache that we have created and cached
-// for the given Cluster.
-type WatchInput struct {
-	// Name represents a unique Watch request for the specified Cluster.
-	// The name is used to track that a specific watch is only added once to a cache.
-	// After a connection (and thus also the cache) has been re-created, watches have to be added
-	// again by calling the Watch method again.
-	Name string
-
-	// Watcher is the watcher (controller) whose Reconcile() function will be called for events.
-	Watcher Watcher
-
-	// Kind is the type of resource to watch.
-	Kind client.Object
-
-	// EventHandler contains the event handlers to invoke for resource events.
-	EventHandler handler.EventHandler
-
-	// Predicates is used to filter resource events.
-	Predicates []predicate.Predicate
+	Name() string
+	KindType() string
+	Watch(cache cache.Cache) error
 }
 
 // GetClusterSourceOption is an option that modifies GetClusterSourceOptions for a GetClusterSource call.
@@ -342,12 +318,12 @@ func (cc *clusterCache) GetClientCertificatePrivateKey(ctx context.Context, clus
 	return accessor.GetClientCertificatePrivateKey(ctx), nil
 }
 
-func (cc *clusterCache) Watch(ctx context.Context, cluster client.ObjectKey, input WatchInput) error {
+func (cc *clusterCache) Watch(ctx context.Context, cluster client.ObjectKey, watcher Watcher) error {
 	accessor := cc.getClusterAccessor(cluster)
 	if accessor == nil {
-		return errors.Wrapf(ErrClusterNotConnected, "error creating watch %s for %T", input.Name, input.Kind)
+		return errors.Wrapf(ErrClusterNotConnected, "error creating watch %s for %s", watcher.Name(), watcher.KindType())
 	}
-	return accessor.Watch(ctx, input)
+	return accessor.Watch(ctx, watcher)
 }
 
 func (cc *clusterCache) GetLastProbeSuccessTimestamp(ctx context.Context, cluster client.ObjectKey) time.Time {
